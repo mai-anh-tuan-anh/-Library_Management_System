@@ -1,0 +1,366 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { RiArrowLeftLine, RiSaveLine } from 'react-icons/ri';
+import toast from 'react-hot-toast';
+import bookService from '../../services/bookService';
+
+const BookForm = () => {
+    const navigate = useNavigate();
+    const { id } = useParams();
+    const isEdit = Boolean(id);
+
+    const [loading, setLoading] = useState(false);
+    const [categories, setCategories] = useState([]);
+    const [publishers, setPublishers] = useState([]);
+
+    const [formData, setFormData] = useState({
+        title: '',
+        book_code: '',
+        isbn: '',
+        category_id: '',
+        author: '',
+        publisher_id: '',
+        publish_year: '',
+        language: 'vi',
+        price: '',
+        borrow_price_per_day: '',
+        summary: '',
+        is_active: true
+    });
+
+    useEffect(() => {
+        loadCategories();
+        loadPublishers();
+        if (isEdit) loadBook();
+    }, [id]);
+
+    const loadCategories = async () => {
+        try {
+            const response = await bookService.getCategories();
+            setCategories(response.data || []);
+        } catch (error) {
+            console.error('Error loading categories:', error);
+        }
+    };
+
+    const loadPublishers = async () => {
+        try {
+            const response = await bookService.getPublishers();
+            setPublishers(response.data || []);
+        } catch (error) {
+            console.error('Error loading publishers:', error);
+        }
+    };
+
+    const loadBook = async () => {
+        try {
+            const response = await bookService.getById(id);
+            const book = response.data;
+            setFormData({
+                title: book.title || '',
+                book_code: book.book_code || '',
+                isbn: book.isbn || '',
+                category_id: book.category_id || '',
+                author: book.author || '',
+                publisher_id: book.publisher_id || '',
+                publish_year: book.publish_year || '',
+                language: book.language || 'vi',
+                price: book.price || '',
+                borrow_price_per_day: book.borrow_price_per_day || '',
+                summary: book.summary || '',
+                is_active: book.is_active !== false
+            });
+        } catch (error) {
+            toast.error('Không thể tải thông tin sách');
+            navigate('/books');
+        }
+    };
+
+    const handleChange = (e) => {
+        const { name, value, type, checked } = e.target;
+        setFormData((prev) => ({
+            ...prev,
+            [name]: type === 'checkbox' ? checked : value
+        }));
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+
+        try {
+            if (isEdit) {
+                await bookService.update(id, formData);
+                toast.success('Cập nhật sách thành công');
+            } else {
+                await bookService.create(formData);
+                toast.success('Thêm sách mới thành công');
+            }
+            navigate('/books');
+        } catch (error) {
+            toast.error(error.response?.data?.message || 'Có lỗi xảy ra');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className='space-y-6'>
+            {/* Header */}
+            <div className='flex items-center gap-4'>
+                <button
+                    onClick={() => navigate('/books')}
+                    className='p-2 text-gray-600 hover:bg-gray-100 rounded-lg'
+                >
+                    <RiArrowLeftLine className='w-5 h-5' />
+                </button>
+                <h1 className='text-2xl font-bold text-gray-900'>
+                    {isEdit ? 'Chỉnh sửa sách' : 'Thêm sách mới'}
+                </h1>
+            </div>
+
+            <form onSubmit={handleSubmit} className='card p-6 space-y-6'>
+                <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
+                    {/* Title */}
+                    <div className='md:col-span-2'>
+                        <label className='block text-sm font-medium text-gray-700 mb-2'>
+                            Tên sách <span className='text-red-500'>*</span>
+                        </label>
+                        <input
+                            type='text'
+                            name='title'
+                            value={formData.title}
+                            onChange={handleChange}
+                            required
+                            className='w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500'
+                            placeholder='Nhập tên sách'
+                        />
+                    </div>
+
+                    {/* Book Code - Auto-generated by backend */}
+                    <div>
+                        <label className='block text-sm font-medium text-gray-700 mb-2'>
+                            Mã sách{' '}
+                            <span className='text-gray-400 text-xs'>
+                                (Tự động tạo)
+                            </span>
+                        </label>
+                        <input
+                            type='text'
+                            name='book_code'
+                            value={formData.book_code}
+                            onChange={handleChange}
+                            disabled={!isEdit}
+                            className='w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-gray-50'
+                            placeholder='VD: BK001'
+                        />
+                    </div>
+
+                    {/* ISBN */}
+                    <div>
+                        <label className='block text-sm font-medium text-gray-700 mb-2'>
+                            ISBN
+                        </label>
+                        <input
+                            type='text'
+                            name='isbn'
+                            value={formData.isbn}
+                            onChange={handleChange}
+                            className='w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500'
+                            placeholder='VD: 9786041012345'
+                        />
+                    </div>
+
+                    {/* Category */}
+                    <div>
+                        <label className='block text-sm font-medium text-gray-700 mb-2'>
+                            Danh mục <span className='text-red-500'>*</span>
+                        </label>
+                        <select
+                            name='category_id'
+                            value={formData.category_id}
+                            onChange={handleChange}
+                            required
+                            className='w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500'
+                        >
+                            <option value=''>Chọn danh mục</option>
+                            {categories.map((cat) => (
+                                <option
+                                    key={cat.category_id}
+                                    value={cat.category_id}
+                                >
+                                    {cat.category_name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Publisher */}
+                    <div>
+                        <label className='block text-sm font-medium text-gray-700 mb-2'>
+                            Nhà xuất bản
+                        </label>
+                        <select
+                            name='publisher_id'
+                            value={formData.publisher_id}
+                            onChange={handleChange}
+                            className='w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500'
+                        >
+                            <option value=''>Chọn nhà xuất bản</option>
+                            {publishers.map((pub) => (
+                                <option
+                                    key={pub.publisher_id}
+                                    value={pub.publisher_id}
+                                >
+                                    {pub.publisher_name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Price */}
+                    <div>
+                        <label className='block text-sm font-medium text-gray-700 mb-2'>
+                            Giá bán (VNĐ)
+                        </label>
+                        <input
+                            type='number'
+                            name='price'
+                            value={formData.price}
+                            onChange={handleChange}
+                            min='0'
+                            className='w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500'
+                            placeholder='VD: 85000'
+                        />
+                    </div>
+
+                    {/* Borrow Price */}
+                    <div>
+                        <label className='block text-sm font-medium text-gray-700 mb-2'>
+                            Giá mượn/ngày (VNĐ)
+                        </label>
+                        <input
+                            type='number'
+                            name='borrow_price_per_day'
+                            value={formData.borrow_price_per_day}
+                            onChange={handleChange}
+                            min='0'
+                            className='w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500'
+                            placeholder='VD: 5000'
+                        />
+                    </div>
+
+                    {/* Author */}
+                    <div className='md:col-span-2'>
+                        <label className='block text-sm font-medium text-gray-700 mb-2'>
+                            Tác giả
+                        </label>
+                        <input
+                            type='text'
+                            name='author'
+                            value={formData.author}
+                            onChange={handleChange}
+                            className='w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500'
+                            placeholder='VD: Nguyễn Nhật Ánh'
+                        />
+                    </div>
+
+                    {/* Publish Year */}
+                    <div>
+                        <label className='block text-sm font-medium text-gray-700 mb-2'>
+                            Năm xuất bản
+                        </label>
+                        <input
+                            type='number'
+                            name='publish_year'
+                            value={formData.publish_year}
+                            onChange={handleChange}
+                            min='1900'
+                            max='2100'
+                            className='w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500'
+                            placeholder='VD: 2023'
+                        />
+                    </div>
+
+                    {/* Language */}
+                    <div>
+                        <label className='block text-sm font-medium text-gray-700 mb-2'>
+                            Ngôn ngữ
+                        </label>
+                        <select
+                            name='language'
+                            value={formData.language}
+                            onChange={handleChange}
+                            className='w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500'
+                        >
+                            <option value='vi'>Tiếng Việt</option>
+                            <option value='en'>Tiếng Anh</option>
+                            <option value='zh'>Tiếng Trung</option>
+                            <option value='ja'>Tiếng Nhật</option>
+                            <option value='ko'>Tiếng Hàn</option>
+                            <option value='fr'>Tiếng Pháp</option>
+                            <option value='de'>Tiếng Đức</option>
+                            <option value='other'>Khác</option>
+                        </select>
+                    </div>
+
+                    {/* Summary */}
+                    <div className='md:col-span-2'>
+                        <label className='block text-sm font-medium text-gray-700 mb-2'>
+                            Tóm tắt
+                        </label>
+                        <textarea
+                            name='summary'
+                            value={formData.summary}
+                            onChange={handleChange}
+                            rows={4}
+                            className='w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500'
+                            placeholder='Nhập tóm tắt nội dung sách...'
+                        />
+                    </div>
+
+                    {/* Active Status */}
+                    <div className='flex items-center h-full pt-8'>
+                        <label className='flex items-center gap-2 cursor-pointer'>
+                            <input
+                                type='checkbox'
+                                name='is_active'
+                                checked={formData.is_active}
+                                onChange={handleChange}
+                                className='w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500'
+                            />
+                            <span className='text-sm font-medium text-gray-700'>
+                                Đang bán
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                {/* Actions */}
+                <div className='flex justify-end gap-4 pt-4 border-t'>
+                    <button
+                        type='button'
+                        onClick={() => navigate('/books')}
+                        className='px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50'
+                    >
+                        Hủy
+                    </button>
+                    <button
+                        type='submit'
+                        disabled={loading}
+                        className='btn-primary gap-2'
+                    >
+                        <RiSaveLine className='w-5 h-5' />
+                        {loading
+                            ? 'Đang lưu...'
+                            : isEdit
+                              ? 'Cập nhật'
+                              : 'Thêm sách'}
+                    </button>
+                </div>
+            </form>
+        </div>
+    );
+};
+
+export default BookForm;
