@@ -19,7 +19,7 @@
     "helmet": "^7.1.0",
     "express-rate-limit": "^7.1.5",
     "morgan": "^1.10.0",
-    "uuid": "^9.0.1",
+    "uuid": "^14.0.0",
     "date-fns": "^2.30.0"
   },
   "devDependencies": {
