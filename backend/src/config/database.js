@@ -54,16 +54,66 @@ const transaction = async (callback) => {
     }
 };
 
-// Call stored procedure
-const callProcedure = async (procedureName, params = []) => {
+// Call stored procedure with OUT parameters support
+const callProcedure = async (
+    procedureName,
+    params = [],
+    outParamNames = []
+) => {
+    let connection;
     try {
-        const placeholders = params.map(() => '?').join(',');
-        const sql = `CALL ${procedureName}(${placeholders})`;
-        const [results] = await pool.execute(sql, params);
-        return results;
+        // Get connection from pool
+        connection = await pool.getConnection();
+
+        // Check if we have OUT params that need special handling
+        const hasOutParams = params.some((p) => p === null || p === undefined);
+
+        if (hasOutParams && outParamNames.length > 0) {
+            // Initialize session variables for OUT params
+            const initVars = outParamNames
+                .map((name) => `SET @${name} = NULL`)
+                .join('; ');
+            await connection.query(initVars);
+
+            // Build placeholders - use @var for OUT params
+            let paramIndex = 0;
+            let outIndex = 0;
+            const placeholders = params
+                .map((p) => {
+                    if (p === null || p === undefined) {
+                        return `@${outParamNames[outIndex++]}`;
+                    }
+                    return '?';
+                })
+                .join(',');
+
+            // Filter only IN params for the query
+            const inParams = params.filter(
+                (p) => p !== null && p !== undefined
+            );
+
+            // Execute procedure
+            const sql = `CALL ${procedureName}(${placeholders})`;
+            const [results] = await connection.query(sql, inParams);
+
+            // Fetch OUT param values
+            const selectVars = `SELECT ${outParamNames.map((name) => `@${name} as ${name}`).join(', ')}`;
+            const [outResults] = await connection.query(selectVars);
+
+            // Return combined results
+            return [...(Array.isArray(results) ? results : []), outResults];
+        } else {
+            // No OUT params - simple call
+            const placeholders = params.map(() => '?').join(',');
+            const sql = `CALL ${procedureName}(${placeholders})`;
+            const [results] = await connection.query(sql, params);
+            return results;
+        }
     } catch (error) {
         console.error(`Procedure ${procedureName} error:`, error);
         throw error;
+    } finally {
+        if (connection) connection.release();
     }
 };
 

@@ -182,10 +182,7 @@ const Dashboard = () => {
                 />
                 <StatCard
                     title='Doanh thu hôm nay'
-                    value={formatCurrency(
-                        (stats?.revenue_borrow_today || 0) +
-                            (stats?.revenue_fine_today || 0)
-                    )}
+                    value={formatCurrency(stats?.revenue_today || 0)}
                     icon={RiMoneyDollarCircleLine}
                     trend='up'
                     trendValue='So với hôm qua'

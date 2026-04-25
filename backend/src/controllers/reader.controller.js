@@ -35,7 +35,10 @@ const getAllReaders = asyncHandler(async (req, res) => {
     // Get readers
     const readers = await query(
         `SELECT r.*, mt.tier_name, mt.badge_icon, mt.badge_color, mt.max_books, mt.max_borrow_days,
-            (SELECT COUNT(*) FROM borrow_transactions bt WHERE bt.reader_id = r.reader_id AND bt.status = 'active') as active_transactions,
+            (SELECT COUNT(*) FROM borrow_details bd
+             JOIN borrow_transactions bt ON bd.transaction_id = bt.transaction_id
+             JOIN book_copies bc ON bd.copy_id = bc.copy_id
+             WHERE bt.reader_id = r.reader_id AND bt.status = 'active' AND bc.status = 'borrowed') as current_borrows,
             (SELECT COUNT(*) FROM return_records rr 
              JOIN borrow_transactions bt ON rr.transaction_id = bt.transaction_id 
              WHERE bt.reader_id = r.reader_id AND rr.fine_paid = FALSE AND rr.fine_amount > 0) as unpaid_fines
@@ -82,7 +85,10 @@ const getReaderById = asyncHandler(async (req, res) => {
 
     const readers = await query(
         `SELECT r.*, mt.tier_name, mt.badge_icon, mt.badge_color, mt.max_books, mt.max_borrow_days,
-            (SELECT COUNT(*) FROM borrow_transactions bt WHERE bt.reader_id = r.reader_id AND bt.status = 'active') as active_transactions,
+            (SELECT COUNT(*) FROM borrow_details bd
+             JOIN borrow_transactions bt ON bd.transaction_id = bt.transaction_id
+             JOIN book_copies bc ON bd.copy_id = bc.copy_id
+             WHERE bt.reader_id = r.reader_id AND bt.status = 'active' AND bc.status = 'borrowed') as current_borrows,
             (SELECT COUNT(*) FROM return_records rr 
              JOIN borrow_transactions bt ON rr.transaction_id = bt.transaction_id 
              WHERE bt.reader_id = r.reader_id AND rr.fine_paid = FALSE AND rr.fine_amount > 0) as unpaid_fines

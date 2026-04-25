@@ -103,7 +103,7 @@ const getBorrowingById = asyncHandler(async (req, res) => {
 
 // Create borrowing (step 1: create transaction)
 const createBorrowing = asyncHandler(async (req, res) => {
-    const { reader_id, payment_method_id, notes } = req.body;
+    const { reader_id, payment_method_id, notes, items } = req.body;
 
     // Check if reader can borrow
     const canBorrow = await query(
@@ -119,18 +119,42 @@ const createBorrowing = asyncHandler(async (req, res) => {
         });
     }
 
-    // Call stored procedure to create transaction (7 params: 4 IN + 3 OUT)
-    const results = await callProcedure('sp_process_borrowing', [
-        reader_id,
-        req.user.user_id,
-        payment_method_id,
-        notes || '',
-        null, // OUT p_transaction_id
-        null, // OUT p_success
-        null // OUT p_message
-    ]);
+    // Call stored procedure to create transaction (8 params: 5 IN + 3 OUT)
+    let results;
+    try {
+        results = await callProcedure(
+            'sp_process_borrowing',
+            [
+                reader_id,
+                req.user.user_id,
+                payment_method_id,
+                notes || '',
+                14, // p_borrow_days - default 14 days
+                null, // OUT p_transaction_id
+                null, // OUT p_success
+                null // OUT p_message
+            ],
+            ['p_transaction_id', 'p_success', 'p_message']
+        );
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: 'Database procedure error: ' + error.message,
+            error: error.message
+        });
+    }
 
-    const result = results[0][0];
+    // Get result from last result set (OUT params are in the last one)
+    const lastResultIndex = Array.isArray(results) ? results.length - 1 : 0;
+    if (!results || !results[lastResultIndex] || !results[lastResultIndex][0]) {
+        return res.status(500).json({
+            success: false,
+            message:
+                'Invalid database response - procedure may need to be updated'
+        });
+    }
+
+    const result = results[lastResultIndex][0];
 
     if (!result.p_success) {
         return res.status(400).json({
@@ -139,11 +163,36 @@ const createBorrowing = asyncHandler(async (req, res) => {
         });
     }
 
+    const transaction_id = result.p_transaction_id;
+
+    // Add books to borrow_details if items provided
+    if (items && items.length > 0) {
+        try {
+            for (const item of items) {
+                await callProcedure(
+                    'sp_add_book_to_transaction',
+                    [
+                        transaction_id,
+                        item.copy_id,
+                        item.borrow_days || 14,
+                        item.daily_fee || 3000,
+                        null, // OUT p_success
+                        null // OUT p_message
+                    ],
+                    ['p_success', 'p_message']
+                );
+            }
+        } catch (error) {
+            console.error('Error adding books to transaction:', error);
+            // Continue anyway, at least header was created
+        }
+    }
+
     res.status(201).json({
         success: true,
         message: result.p_message,
         data: {
-            transaction_id: result.p_transaction_id
+            transaction_id: transaction_id
         }
     });
 });
@@ -153,19 +202,28 @@ const addBookToTransaction = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const { copy_id, borrow_days, daily_fee } = req.body;
 
-    const results = await callProcedure('sp_add_book_to_transaction', [
-        id,
-        copy_id,
-        borrow_days,
-        daily_fee
-    ]);
+    const results = await callProcedure(
+        'sp_add_book_to_transaction',
+        [
+            parseInt(id),
+            parseInt(copy_id),
+            parseInt(borrow_days) || 14,
+            parseFloat(daily_fee) || 3000,
+            null, // OUT p_success
+            null // OUT p_message
+        ],
+        ['p_success', 'p_message']
+    );
 
-    const result = results[0][0];
+    const lastResultIndex = Array.isArray(results) ? results.length - 1 : 0;
+    const result = results[lastResultIndex]
+        ? results[lastResultIndex][0]
+        : null;
 
-    if (!result.p_success) {
+    if (!result || !result.p_success) {
         return res.status(400).json({
             success: false,
-            message: result.p_message
+            message: result?.p_message || 'Failed to add book to transaction'
         });
     }
 
@@ -179,13 +237,25 @@ const addBookToTransaction = asyncHandler(async (req, res) => {
 const finalizeBorrowing = asyncHandler(async (req, res) => {
     const { id } = req.params;
 
-    const results = await callProcedure('sp_finalize_borrowing', [id]);
-    const result = results[0][0];
+    const results = await callProcedure(
+        'sp_finalize_borrowing',
+        [
+            parseInt(id),
+            null, // OUT p_success
+            null // OUT p_message
+        ],
+        ['p_success', 'p_message']
+    );
 
-    if (!result.p_success) {
+    const lastResultIndex = Array.isArray(results) ? results.length - 1 : 0;
+    const result = results[lastResultIndex]
+        ? results[lastResultIndex][0]
+        : null;
+
+    if (!result || !result.p_success) {
         return res.status(400).json({
             success: false,
-            message: result.p_message
+            message: result?.p_message || 'Failed to finalize borrowing'
         });
     }
 
@@ -200,18 +270,27 @@ const cancelBorrowing = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const { reason } = req.body;
 
-    const results = await callProcedure('sp_cancel_borrowing', [
-        id,
-        req.user.user_id,
-        reason || 'Cancelled by user'
-    ]);
+    const results = await callProcedure(
+        'sp_cancel_borrowing',
+        [
+            parseInt(id),
+            req.user.user_id,
+            reason || 'Cancelled by user',
+            null, // OUT p_success
+            null // OUT p_message
+        ],
+        ['p_success', 'p_message']
+    );
 
-    const result = results[0][0];
+    const lastResultIndex = Array.isArray(results) ? results.length - 1 : 0;
+    const result = results[lastResultIndex]
+        ? results[lastResultIndex][0]
+        : null;
 
-    if (!result.p_success) {
+    if (!result || !result.p_success) {
         return res.status(400).json({
             success: false,
-            message: result.p_message
+            message: result?.p_message || 'Failed to cancel borrowing'
         });
     }
 
@@ -221,7 +300,88 @@ const cancelBorrowing = asyncHandler(async (req, res) => {
     });
 });
 
-// Process return
+// Process return by barcode
+const processReturnByBarcode = asyncHandler(async (req, res) => {
+    const {
+        barcode,
+        condition_on_return,
+        damage_type_id,
+        damage_description,
+        fine_payment_method_id
+    } = req.body;
+
+    // Call stored procedure with all 9 params: 6 IN + 3 OUT
+    let results;
+    try {
+        results = await callProcedure(
+            'sp_process_return_by_barcode',
+            [
+                barcode,
+                req.user.user_id,
+                condition_on_return || 'good',
+                damage_type_id || null,
+                damage_description || '',
+                fine_payment_method_id || null,
+                null, // OUT p_success
+                null, // OUT p_message
+                null // OUT p_total_fine
+            ],
+            [
+                'p_success',
+                'p_message',
+                'p_total_fine',
+                'p_book_title',
+                'p_days_late',
+                'p_late_fee',
+                'p_damage_fee'
+            ]
+        );
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: 'Database procedure error: ' + error.message
+        });
+    }
+
+    // OUT params are in the LAST result set
+    const lastResultIndex = Array.isArray(results) ? results.length - 1 : 0;
+    if (!results || !results[lastResultIndex] || !results[lastResultIndex][0]) {
+        return res.status(500).json({
+            success: false,
+            message: 'Invalid database response'
+        });
+    }
+
+    const result = results[lastResultIndex][0];
+
+    if (!result.p_success) {
+        return res.status(400).json({
+            success: false,
+            message: result.p_message,
+            data: {
+                book_title: result.p_book_title,
+                days_late: result.p_days_late,
+                late_fee: result.p_late_fee,
+                damage_fee: result.p_damage_fee,
+                total_fine: result.p_total_fine
+            }
+        });
+    }
+
+    res.json({
+        success: true,
+        message: result.p_message,
+        data: {
+            book_title: result.p_book_title,
+            days_late: result.p_days_late,
+            late_fee: result.p_late_fee,
+            damage_fee: result.p_damage_fee,
+            total_fine: result.p_total_fine
+        }
+    });
+});
+
+// Legacy: Process return (kept for backward compatibility)
 const processReturn = asyncHandler(async (req, res) => {
     const {
         detail_id,
@@ -240,12 +400,15 @@ const processReturn = asyncHandler(async (req, res) => {
         fine_payment_method_id
     ]);
 
-    const result = results[0][0];
+    const lastResultIndex = Array.isArray(results) ? results.length - 1 : 0;
+    const result = results[lastResultIndex]
+        ? results[lastResultIndex][0]
+        : null;
 
-    if (!result.p_success) {
+    if (!result || !result.p_success) {
         return res.status(400).json({
             success: false,
-            message: result.p_message
+            message: result?.p_message || 'Failed to process return'
         });
     }
 
@@ -268,12 +431,15 @@ const payFine = asyncHandler(async (req, res) => {
         payment_method_id
     ]);
 
-    const result = results[0][0];
+    const lastResultIndex = Array.isArray(results) ? results.length - 1 : 0;
+    const result = results[lastResultIndex]
+        ? results[lastResultIndex][0]
+        : null;
 
-    if (!result.p_success) {
+    if (!result || !result.p_success) {
         return res.status(400).json({
             success: false,
-            message: result.p_message
+            message: result?.p_message || 'Failed to process payment'
         });
     }
 
@@ -399,6 +565,7 @@ module.exports = {
     finalizeBorrowing,
     cancelBorrowing,
     processReturn,
+    processReturnByBarcode,
     payFine,
     getDueAlerts,
     getOverdue,

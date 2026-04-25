@@ -16,6 +16,7 @@ const borrowService = {
     // Create new borrowing transaction
     create: async (data) => {
         const response = await api.post('/borrowings', data);
+        console.log(response);
         return response.data;
     },
 
@@ -25,9 +26,32 @@ const borrowService = {
         return response.data;
     },
 
-    // Process return
+    // Add book to transaction
+    addBook: async (transactionId, data) => {
+        const response = await api.post(
+            `/borrowings/${transactionId}/books`,
+            data
+        );
+        return response.data;
+    },
+
+    // Finalize transaction
+    finalize: async (transactionId) => {
+        const response = await api.post(
+            `/borrowings/${transactionId}/finalize`
+        );
+        return response.data;
+    },
+
+    // Process return (legacy)
     processReturn: async (data) => {
         const response = await api.post('/returns', data);
+        return response.data;
+    },
+
+    // Process return by barcode (new)
+    processReturnByBarcode: async (data) => {
+        const response = await api.post('/returns/barcode', data);
         return response.data;
     },
 

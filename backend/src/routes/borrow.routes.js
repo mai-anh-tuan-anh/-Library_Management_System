@@ -2,19 +2,20 @@ const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth.middleware');
 const {
-  getAllBorrowings,
-  getBorrowingById,
-  createBorrowing,
-  addBookToTransaction,
-  finalizeBorrowing,
-  cancelBorrowing,
-  processReturn,
-  payFine,
-  getDueAlerts,
-  getOverdue,
-  getDamageTypes,
-  getPaymentMethods,
-  sendReminder
+    getAllBorrowings,
+    getBorrowingById,
+    createBorrowing,
+    addBookToTransaction,
+    finalizeBorrowing,
+    cancelBorrowing,
+    processReturn,
+    processReturnByBarcode,
+    payFine,
+    getDueAlerts,
+    getOverdue,
+    getDamageTypes,
+    getPaymentMethods,
+    sendReminder
 } = require('../controllers/borrow.controller');
 const { asyncHandler } = require('../middleware/error.middleware');
 
@@ -36,6 +37,7 @@ router.post('/:id/remind', asyncHandler(sendReminder));
 
 // Return routes
 router.post('/returns', asyncHandler(processReturn));
+router.post('/returns/barcode', asyncHandler(processReturnByBarcode));
 router.post('/returns/:id/pay-fine', asyncHandler(payFine));
 
 module.exports = router;

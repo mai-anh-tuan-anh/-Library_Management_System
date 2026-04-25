@@ -335,10 +335,12 @@ CREATE TABLE return_records (
     return_date DATETIME DEFAULT CURRENT_TIMESTAMP,
     expected_return_date DATE NOT NULL,
     days_late INT DEFAULT 0,
+    late_fee DECIMAL(10, 2) DEFAULT 0.00,  -- Phí trễ: 50% x borrow_price_per_day x days_late
     is_damaged BOOLEAN DEFAULT FALSE,
     damage_type_id INT,
     damage_description TEXT,
-    fine_amount DECIMAL(10, 2) DEFAULT 0.00,
+    damage_fee DECIMAL(10, 2) DEFAULT 0.00,  -- Phí hư hỏng: % x book.price
+    fine_amount DECIMAL(10, 2) DEFAULT 0.00,  -- Tổng phí = late_fee + damage_fee
     fine_paid BOOLEAN DEFAULT FALSE,
     fine_payment_method_id INT,
     fine_payment_date DATETIME,
@@ -504,14 +506,13 @@ INSERT INTO payment_methods (method_code, method_name, description) VALUES
 ('MOMO', 'Ví MoMo', 'Thanh toán qua ví điện tử MoMo'),
 ('ZALOPAY', 'ZaloPay', 'Thanh toán qua ví ZaloPay');
 
--- Insert damage types
+-- Insert damage types (preset based on book price percentage)
 INSERT INTO damage_types (damage_code, damage_name, description, fine_percentage) VALUES
-('LIGHT', 'Hư hỏng nhẹ', 'Trầy xước nhẹ, góc bị móp nhẹ', 20.00),
-('MODERATE', 'Hư hỏng vừa', 'Trang bị rách, bìa bị hư hỏng', 25.00),
-('SEVERE', 'Hư hỏng nặng', 'Nhiều trang bị rách, mất trang', 30.00),
-('LOST', 'Mất sách', 'Sách bị mất hoặc không thể phục hồi', 100.00),
-('WATER', 'Ngấm nước', 'Sách bị ngấm nước, ố vàng', 25.00),
-('WRITING', 'Viết vẽ', 'Có chữ viết, ghi chú bằng bút không xóa được', 20.00);
+('GOOD', 'Tốt', 'Không có hư hỏng', 0.00),
+('FAIR', 'Khá', 'Trầy xước nhẹ, góc bị móp', 10.00),
+('POOR', 'Trung bình', 'Nhiều vết trầy, bìa cũ', 25.00),
+('DAMAGED', 'Hư hỏng', 'Trang rách, bìa hỏng nặng', 50.00),
+('LOST', 'Mất sách', 'Mất hoàn toàn không tìm thấy', 100.00);
 
 -- Insert notification templates
 INSERT INTO notification_templates (template_code, template_name, subject, content, variables) VALUES
@@ -801,6 +802,7 @@ CREATE PROCEDURE sp_process_borrowing(
     IN p_borrowed_by INT,
     IN p_payment_method_id INT,
     IN p_notes TEXT,
+    IN p_borrow_days INT,
     OUT p_transaction_id INT,
     OUT p_success BOOLEAN,
     OUT p_message VARCHAR(255)
@@ -811,6 +813,10 @@ BEGIN
     DECLARE v_max_books INT;
     DECLARE v_current_books INT;
     DECLARE v_transaction_code VARCHAR(50);
+    DECLARE v_expected_return_date DATE;
+    
+    -- Calculate expected return date
+    SET v_expected_return_date = DATE_ADD(CURDATE(), INTERVAL COALESCE(p_borrow_days, 14) DAY);
     
     -- Start transaction
     START TRANSACTION;
@@ -844,18 +850,22 @@ BEGIN
         SET p_message = 'Reader is blacklisted';
         ROLLBACK;
     ELSE
-        -- Generate transaction code
-        SET v_transaction_code = generate_transaction_code(p_reader_id);
+        -- Generate unique transaction code with sequence number
+        SET v_transaction_code = CONCAT('BRW-', DATE_FORMAT(CURDATE(), '%Y%m%d'), '-', p_reader_id, '-', LPAD(
+            (SELECT COUNT(*) + 1 
+             FROM borrow_transactions 
+             WHERE DATE(borrow_date) = CURDATE() 
+             AND reader_id = p_reader_id), 3, '0'));
         
-        -- Create transaction header (details will be added separately)
+        -- Create transaction header with expected_return_date
         INSERT INTO borrow_transactions (
             transaction_code, reader_id, borrowed_by, 
             total_books, borrow_fee, payment_status, 
-            payment_method_id, payment_date, notes
+            payment_method_id, payment_date, notes, expected_return_date
         ) VALUES (
             v_transaction_code, p_reader_id, p_borrowed_by,
             0, 0.00, 'pending',
-            p_payment_method_id, NULL, p_notes
+            p_payment_method_id, NULL, p_notes, v_expected_return_date
         );
         
         SET p_transaction_id = LAST_INSERT_ID();
@@ -864,6 +874,9 @@ BEGIN
         
         COMMIT;
     END IF;
+    
+    -- Return OUT params as result set
+    SELECT p_transaction_id, p_success, p_message;
 END //
 
 -- Procedure: Add book to borrowing transaction
@@ -936,6 +949,9 @@ BEGIN
         
         COMMIT;
     END IF;
+    
+    -- Return OUT params as result set
+    SELECT p_success, p_message;
 END //
 
 -- Procedure: Finalize borrowing transaction
@@ -984,11 +1000,14 @@ BEGIN
         
         COMMIT;
     END IF;
+    
+    -- Return OUT params as result set
+    SELECT p_success, p_message;
 END //
 
--- Procedure: Process return with fine calculation
-CREATE PROCEDURE sp_process_return(
-    IN p_detail_id INT,
+-- Procedure: Process return with fine calculation (by barcode)
+CREATE PROCEDURE sp_process_return_by_barcode(
+    IN p_barcode VARCHAR(50),
     IN p_returned_by INT,
     IN p_condition_on_return VARCHAR(20),
     IN p_damage_type_id INT,
@@ -996,113 +1015,166 @@ CREATE PROCEDURE sp_process_return(
     IN p_fine_payment_method_id INT,
     OUT p_success BOOLEAN,
     OUT p_message VARCHAR(255),
-    OUT p_total_fine DECIMAL(10, 2)
+    OUT p_total_fine DECIMAL(10, 2),
+    OUT p_book_title VARCHAR(255),
+    OUT p_days_late INT,
+    OUT p_late_fee DECIMAL(10, 2),
+    OUT p_damage_fee DECIMAL(10, 2)
 )
 BEGIN
     DECLARE v_transaction_id INT;
+    DECLARE v_detail_id INT;
     DECLARE v_copy_id INT;
     DECLARE v_book_id INT;
     DECLARE v_book_price DECIMAL(10, 2);
+    DECLARE v_borrow_price DECIMAL(10, 2);
+    DECLARE v_book_title VARCHAR(255);
     DECLARE v_expected_return_date DATE;
-    DECLARE v_borrow_days INT;
     DECLARE v_days_late INT;
     DECLARE v_late_fee DECIMAL(10, 2);
     DECLARE v_damage_fee DECIMAL(10, 2);
     DECLARE v_damage_percentage DECIMAL(5, 2);
     DECLARE v_fine_paid BOOLEAN;
+    DECLARE v_setting_value VARCHAR(50);
+    DECLARE v_late_penalty_percent DECIMAL(5, 2) DEFAULT 50.00;
     
     -- Start transaction
     START TRANSACTION;
     
-    -- Get borrow details
+    -- Get late penalty percentage from settings (default 50%)
+    SELECT setting_value INTO v_setting_value
+    FROM system_settings WHERE setting_key = 'late_penalty_percent';
+    IF v_setting_value IS NOT NULL THEN
+        SET v_late_penalty_percent = CAST(v_setting_value AS DECIMAL(5, 2));
+    END IF;
+    
+    -- Find active borrow detail by barcode
     SELECT 
+        bd.detail_id,
         bd.transaction_id,
         bd.copy_id,
         bd.book_id,
+        b.title,
         b.price,
-        bt.expected_return_date,
-        bd.borrow_days,
-        (SELECT fine_percentage FROM damage_types WHERE damage_type_id = p_damage_type_id)
+        b.borrow_price_per_day,
+        bt.expected_return_date
     INTO 
+        v_detail_id,
         v_transaction_id,
         v_copy_id,
         v_book_id,
+        v_book_title,
         v_book_price,
-        v_expected_return_date,
-        v_borrow_days,
-        v_damage_percentage
+        v_borrow_price,
+        v_expected_return_date
     FROM borrow_details bd
+    JOIN book_copies bc ON bd.copy_id = bc.copy_id
     JOIN books b ON bd.book_id = b.book_id
     JOIN borrow_transactions bt ON bd.transaction_id = bt.transaction_id
-    WHERE bd.detail_id = p_detail_id;
+    WHERE bc.barcode = p_barcode
+    AND bd.status = 'active'
+    AND bt.payment_status = 'paid'
+    AND NOT EXISTS (
+        SELECT 1 FROM return_records rr 
+        WHERE rr.detail_id = bd.detail_id
+    )
+    LIMIT 1;
     
-    -- Calculate days late
-    SET v_days_late = GREATEST(0, DATEDIFF(CURDATE(), v_expected_return_date));
-    
-    -- Calculate late fee (50% of book price if late)
-    IF v_days_late > 0 THEN
-        SET v_late_fee = calculate_late_fee(v_book_price, v_days_late, 50.00);
+    IF v_detail_id IS NULL THEN
+        SET p_success = FALSE;
+        SET p_message = 'Không tìm thấy sách đang mượn với mã barcode này';
+        SET p_total_fine = 0;
+        SET p_book_title = NULL;
+        SET p_days_late = 0;
+        SET p_late_fee = 0;
+        SET p_damage_fee = 0;
+        ROLLBACK;
     ELSE
-        SET v_late_fee = 0.00;
+        -- Calculate days late
+        SET v_days_late = GREATEST(0, DATEDIFF(CURDATE(), v_expected_return_date));
+        
+        -- Calculate late fee (50% of borrow_price_per_day per day late)
+        IF v_days_late > 0 THEN
+            SET v_late_fee = (v_late_penalty_percent / 100) * v_borrow_price * v_days_late;
+        ELSE
+            SET v_late_fee = 0.00;
+        END IF;
+        
+        -- Get damage percentage
+        IF p_damage_type_id IS NOT NULL THEN
+            SELECT fine_percentage INTO v_damage_percentage
+            FROM damage_types WHERE damage_type_id = p_damage_type_id;
+        ELSE
+            SET v_damage_percentage = 0;
+        END IF;
+        
+        -- Calculate damage fee (% of book price)
+        SET v_damage_fee = (v_damage_percentage / 100) * v_book_price;
+        
+        -- Total fine
+        SET p_total_fine = v_late_fee + v_damage_fee;
+        
+        -- If there's fine and payment method provided, mark as paid
+        IF p_total_fine > 0 AND p_fine_payment_method_id IS NOT NULL THEN
+            SET v_fine_paid = TRUE;
+        ELSEIF p_total_fine > 0 THEN
+            SET v_fine_paid = FALSE;
+        ELSE
+            SET v_fine_paid = TRUE;
+        END IF;
+        
+        -- Create return record
+        INSERT INTO return_records (
+            transaction_id, detail_id, copy_id, returned_by,
+            expected_return_date, days_late, late_fee,
+            is_damaged, damage_type_id, damage_description, damage_fee,
+            fine_amount, fine_paid, fine_payment_method_id, fine_payment_date,
+            condition_on_return
+        ) VALUES (
+            v_transaction_id, v_detail_id, v_copy_id, p_returned_by,
+            v_expected_return_date, v_days_late, v_late_fee,
+            (p_damage_type_id IS NOT NULL), p_damage_type_id, p_damage_description, v_damage_fee,
+            p_total_fine, v_fine_paid, p_fine_payment_method_id, 
+            CASE WHEN v_fine_paid THEN NOW() ELSE NULL END,
+            p_condition_on_return
+        );
+        
+        -- Update borrow_details status
+        UPDATE borrow_details 
+        SET status = 'returned', 
+            actual_return_date = NOW()
+        WHERE detail_id = v_detail_id;
+        
+        -- Update copy status
+        UPDATE book_copies 
+        SET status = 'available',
+            condition_status = p_condition_on_return
+        WHERE copy_id = v_copy_id;
+        
+        -- Check if all books in transaction are returned
+        IF NOT EXISTS (
+            SELECT 1 FROM borrow_details bd
+            WHERE bd.transaction_id = v_transaction_id
+            AND bd.status = 'active'
+        ) THEN
+            -- All books returned, mark transaction as completed
+            UPDATE borrow_transactions 
+            SET status = 'completed',
+                actual_return_date = NOW()
+            WHERE transaction_id = v_transaction_id;
+        END IF;
+        
+        SET p_success = TRUE;
+        SET p_message = 'Trả sách thành công';
+        SET p_book_title = v_book_title;
+        SET p_days_late = v_days_late;
+        SET p_late_fee = v_late_fee;
+        SET p_damage_fee = v_damage_fee;
+        
+        COMMIT;
     END IF;
     
-    -- Calculate damage fee
-    IF p_damage_type_id IS NOT NULL THEN
-        SET v_damage_fee = calculate_damage_fee(v_book_price, v_damage_percentage);
-    ELSE
-        SET v_damage_fee = 0.00;
-    END IF;
-    
-    -- Total fine
-    SET p_total_fine = v_late_fee + v_damage_fee;
-    
-    -- If there's fine, mark as unpaid initially
-    IF p_total_fine > 0 THEN
-        SET v_fine_paid = FALSE;
-    ELSE
-        SET v_fine_paid = TRUE;
-    END IF;
-    
-    -- Create return record
-    INSERT INTO return_records (
-        transaction_id, detail_id, copy_id, returned_by,
-        expected_return_date, days_late, is_damaged,
-        damage_type_id, damage_description, fine_amount,
-        fine_paid, fine_payment_method_id, fine_payment_date,
-        condition_on_return
-    ) VALUES (
-        v_transaction_id, p_detail_id, v_copy_id, p_returned_by,
-        v_expected_return_date, v_days_late, (p_damage_type_id IS NOT NULL),
-        p_damage_type_id, p_damage_description, p_total_fine,
-        v_fine_paid, p_fine_payment_method_id, CASE WHEN v_fine_paid THEN NOW() ELSE NULL END,
-        p_condition_on_return
-    );
-    
-    -- Update copy status
-    UPDATE book_copies 
-    SET status = 'available',
-        condition_status = p_condition_on_return
-    WHERE copy_id = v_copy_id;
-    
-    -- Check if all books in transaction are returned
-    IF NOT EXISTS (
-        SELECT 1 FROM borrow_details bd
-        WHERE bd.transaction_id = v_transaction_id
-        AND NOT EXISTS (
-            SELECT 1 FROM return_records rr 
-            WHERE rr.detail_id = bd.detail_id
-        )
-    ) THEN
-        -- All books returned, mark transaction as completed
-        UPDATE borrow_transactions 
-        SET status = 'completed' 
-        WHERE transaction_id = v_transaction_id;
-    END IF;
-    
-    SET p_success = TRUE;
-    SET p_message = 'Return processed successfully';
-    
-    COMMIT;
+    SELECT p_success, p_message, p_total_fine, p_book_title, p_days_late, p_late_fee, p_damage_fee;
 END //
 
 -- Procedure: Process fine payment
@@ -1131,6 +1203,8 @@ BEGIN
         SET p_message = 'Fine payment processed successfully';
         COMMIT;
     END IF;
+    
+    SELECT p_success, p_message;
 END //
 
 -- Procedure: Handle membership downgrade
@@ -1253,6 +1327,8 @@ BEGIN
         
         COMMIT;
     END IF;
+    
+    SELECT p_success, p_message;
 END //
 
 -- Procedure: Search reader with borrow info
