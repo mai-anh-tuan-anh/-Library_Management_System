@@ -41,7 +41,12 @@ const getAllReaders = asyncHandler(async (req, res) => {
              WHERE bt.reader_id = r.reader_id AND bt.status = 'active' AND bc.status = 'borrowed') as current_borrows,
             (SELECT COUNT(*) FROM return_records rr 
              JOIN borrow_transactions bt ON rr.transaction_id = bt.transaction_id 
-             WHERE bt.reader_id = r.reader_id AND rr.fine_paid = FALSE AND rr.fine_amount > 0) as unpaid_fines
+             WHERE bt.reader_id = r.reader_id AND rr.fine_paid = FALSE AND rr.fine_amount > 0) as unpaid_fines,
+            (SELECT COUNT(*) FROM borrow_details bd
+             JOIN borrow_transactions bt ON bd.transaction_id = bt.transaction_id
+             JOIN book_copies bc ON bd.copy_id = bc.copy_id
+             WHERE bt.reader_id = r.reader_id AND bt.status = 'active' AND bc.status = 'borrowed'
+             AND DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY) < CURDATE()) as overdue_books
      FROM readers r
      JOIN membership_tiers mt ON r.tier_id = mt.tier_id
      ${whereClause}
@@ -115,12 +120,116 @@ const getReaderById = asyncHandler(async (req, res) => {
 const getReaderBorrows = asyncHandler(async (req, res) => {
     const { id } = req.params;
 
-    // Call stored procedure
     const results = await callProcedure('sp_get_reader_current_borrows', [id]);
+    const borrows = results[0] || [];
 
     res.json({
         success: true,
-        data: results[0] || []
+        data: borrows
+    });
+});
+
+// Get reader's complete borrowing history (all transactions)
+const getReaderBorrowHistory = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+
+    // Check if reader exists
+    const [reader] = await query(
+        'SELECT reader_id FROM readers WHERE reader_id = ? AND deleted_at IS NULL',
+        [id]
+    );
+
+    if (!reader) {
+        return res.status(404).json({
+            success: false,
+            message: 'Reader not found'
+        });
+    }
+
+    // Get all borrow transactions with details
+    const history = await query(
+        `SELECT 
+            bt.transaction_id,
+            bt.transaction_code,
+            bt.borrow_date,
+            bt.expected_return_date as due_date,
+            bt.status,
+            bt.total_books,
+            bt.borrow_fee,
+            bt.notes,
+            bd.detail_id,
+            bd.copy_id,
+            bd.borrow_days,
+            bd.daily_fee,
+            bd.subtotal,
+            b.book_id,
+            b.title as book_title,
+            b.price,
+            bc.barcode,
+            rr.return_date as actual_return_date,
+            GREATEST(0, DATEDIFF(rr.return_date, DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY))) as days_overdue,
+            calculate_late_fee(b.price, GREATEST(0, DATEDIFF(rr.return_date, DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY)))) as late_fee,
+            rr.damage_fee,
+            rr.fine_amount as total_fine
+        FROM borrow_transactions bt
+        LEFT JOIN borrow_details bd ON bt.transaction_id = bd.transaction_id
+        LEFT JOIN book_copies bc ON bd.copy_id = bc.copy_id
+        LEFT JOIN books b ON bc.book_id = b.book_id
+        LEFT JOIN return_records rr ON bd.detail_id = rr.detail_id
+        WHERE bt.reader_id = ?
+        ORDER BY bt.borrow_date DESC, bd.detail_id ASC`,
+        [id]
+    );
+
+    // Group by transaction
+    const transactionsMap = new Map();
+
+    for (const row of history) {
+        if (!transactionsMap.has(row.transaction_id)) {
+            transactionsMap.set(row.transaction_id, {
+                transaction_id: row.transaction_id,
+                transaction_code: row.transaction_code,
+                borrow_date: row.borrow_date,
+                due_date: row.due_date,
+                status: row.status,
+                total_books: row.total_books,
+                borrow_fee: row.borrow_fee,
+                notes: row.notes,
+                total_fine: 0,
+                books: []
+            });
+        }
+
+        if (row.detail_id) {
+            const bookFine =
+                parseFloat(row.late_fee || 0) + parseFloat(row.damage_fee || 0);
+            transactionsMap.get(row.transaction_id).books.push({
+                detail_id: row.detail_id,
+                copy_id: row.copy_id,
+                book_id: row.book_id,
+                book_title: row.book_title,
+                barcode: row.barcode,
+                borrow_days: row.borrow_days,
+                daily_fee: row.daily_fee,
+                subtotal: row.subtotal,
+                actual_return_date: row.actual_return_date,
+                days_overdue: row.days_overdue,
+                late_fee: row.late_fee,
+                damage_fee: row.damage_fee,
+                total_fine: bookFine
+            });
+            transactionsMap.get(row.transaction_id).total_fine += bookFine;
+        }
+    }
+
+    const result = Array.from(transactionsMap.values()).map((tx) => ({
+        ...tx,
+        total_fee: parseFloat(tx.borrow_fee || 0) + tx.total_fine
+    }));
+
+    res.json({
+        success: true,
+        data: result
     });
 });
 
@@ -352,6 +461,7 @@ module.exports = {
     searchReaders,
     getReaderById,
     getReaderBorrows,
+    getReaderBorrowHistory,
     createReader,
     updateReader,
     deleteReader,

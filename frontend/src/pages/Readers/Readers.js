@@ -219,7 +219,7 @@ const Readers = () => {
                             <th className='table-header'>Liên hệ</th>
                             <th className='table-header'>Cấp độ</th>
                             <th className='table-header'>Đang mượn</th>
-                            <th className='table-header'>Trễ hạn</th>
+                            <th className='table-header'>Quá hạn</th>
                             <th className='table-header'>Ngày đăng ký</th>
                             <th className='table-header'>Thao tác</th>
                         </tr>
@@ -287,9 +287,9 @@ const Readers = () => {
                                         </span>
                                     </td>
                                     <td className='table-cell'>
-                                        {reader.late_count > 0 ? (
+                                        {reader.overdue_books > 0 ? (
                                             <span className='badge bg-red-100 text-red-800'>
-                                                {reader.late_count} lần
+                                                {reader.overdue_books} cuốn
                                             </span>
                                         ) : (
                                             <span className='text-gray-500'>

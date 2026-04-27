@@ -85,7 +85,11 @@ const Dashboard = () => {
             ]);
 
             setStats(statsRes.data);
-            setDueAlerts(alertsRes.data?.slice(0, 5) || []);
+            // Filter: only show books NOT yet overdue (days_remaining >= 0)
+            const dueAlertsData = (alertsRes.data || [])
+                .filter((item) => item.days_remaining >= 0)
+                .slice(0, 5);
+            setDueAlerts(dueAlertsData);
 
             // Prepare revenue chart data
             if (revenueRes.data) {
@@ -161,7 +165,7 @@ const Dashboard = () => {
                     value={stats?.total_active_readers || 0}
                     icon={RiUserLine}
                     trend='up'
-                    trendValue={`+${stats?.new_readers_today || 0} hôm nay`}
+                    trendValue={`+${stats?.new_readers_today || 0} độc giả hôm nay`}
                     color='bg-blue-500'
                 />
                 <StatCard
@@ -169,7 +173,7 @@ const Dashboard = () => {
                     value={stats?.total_available_copies || 0}
                     icon={RiBookLine}
                     trend='up'
-                    trendValue={`+${stats?.new_books_today || 0} đầu sách`}
+                    trendValue={`+${stats?.new_books_today || 0} đầu sách hôm nay`}
                     color='bg-green-500'
                 />
                 <StatCard
@@ -177,15 +181,15 @@ const Dashboard = () => {
                     value={stats?.borrows_today || 0}
                     icon={RiExchangeLine}
                     trend='up'
-                    trendValue={`${stats?.returns_today || 0} lượt trả`}
+                    trendValue={`+${stats?.returns_today || 0} lượt trả hôm nay`}
                     color='bg-purple-500'
                 />
                 <StatCard
                     title='Doanh thu hôm nay'
                     value={formatCurrency(stats?.revenue_today || 0)}
                     icon={RiMoneyDollarCircleLine}
-                    trend='up'
-                    trendValue='So với hôm qua'
+                    trend=''
+                    trendValue=''
                     color='bg-yellow-500'
                 />
             </div>
@@ -198,11 +202,16 @@ const Dashboard = () => {
                         Doanh thu 6 tháng gần đây
                     </h3>
                     <div className='h-72'>
-                        <Bar
+                        <Line
                             data={revenueData}
                             options={{
                                 responsive: true,
                                 maintainAspectRatio: false,
+                                elements: {
+                                    line: {
+                                        tension: 0.4
+                                    }
+                                },
                                 scales: {
                                     y: {
                                         beginAtZero: true,

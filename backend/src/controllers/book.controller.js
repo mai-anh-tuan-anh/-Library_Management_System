@@ -423,6 +423,71 @@ const updateBookCopy = asyncHandler(async (req, res) => {
     });
 });
 
+// Delete book copy (hard delete - physically remove from database)
+const deleteBookCopy = asyncHandler(async (req, res) => {
+    const { bookId, copyId } = req.params;
+
+    // Check if copy exists and is not currently borrowed
+    const copies = await query(
+        `SELECT bc.*, b.title, b.book_id as parent_book_id
+         FROM book_copies bc
+         JOIN books b ON bc.book_id = b.book_id
+         WHERE bc.copy_id = ? AND bc.book_id = ?`,
+        [copyId, bookId]
+    );
+
+    if (copies.length === 0) {
+        return res.status(404).json({
+            success: false,
+            message: 'Không tìm thấy bản sao sách'
+        });
+    }
+
+    const copy = copies[0];
+
+    // Check if book is currently borrowed
+    if (copy.status === 'borrowed') {
+        return res.status(400).json({
+            success: false,
+            message: 'Không thể xóa bản sao đang được mượn'
+        });
+    }
+
+    // Delete the copy
+    await query(`DELETE FROM book_copies WHERE copy_id = ?`, [copyId]);
+
+    // Update book inventory counts
+    if (copy.status === 'available') {
+        // If available, decrease both total and available
+        await query(
+            `UPDATE books 
+             SET total_copies = total_copies - 1,
+                 available_copies = available_copies - 1
+             WHERE book_id = ?`,
+            [bookId]
+        );
+    } else if (copy.status === 'lost') {
+        // If lost, only decrease total (borrowed already accounted for)
+        await query(
+            `UPDATE books 
+             SET total_copies = total_copies - 1
+             WHERE book_id = ?`,
+            [bookId]
+        );
+    } else {
+        // Other statuses, just decrease total
+        await query(
+            `UPDATE books SET total_copies = total_copies - 1 WHERE book_id = ?`,
+            [bookId]
+        );
+    }
+
+    res.json({
+        success: true,
+        message: 'Đã xóa bản sao sách thành công'
+    });
+});
+
 module.exports = {
     getAllBooks,
     getBookById,
@@ -432,6 +497,7 @@ module.exports = {
     deleteBook,
     addBookCopy,
     updateBookCopy,
+    deleteBookCopy,
     searchByBarcode,
     getCategories,
     getAuthors,

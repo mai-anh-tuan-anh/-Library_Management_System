@@ -69,25 +69,29 @@ const callProcedure = async (
         const hasOutParams = params.some((p) => p === null || p === undefined);
 
         if (hasOutParams && outParamNames.length > 0) {
-            // Initialize session variables for OUT params
-            const initVars = outParamNames
-                .map((name) => `SET @${name} = NULL`)
+            // Generate unique session variable names for OUT params
+            const sessionVars = outParamNames.map(
+                (_, i) => `@out_${i}_${Date.now()}`
+            );
+
+            // Initialize session variables
+            const initVars = sessionVars
+                .map((v) => `SET ${v} = NULL`)
                 .join('; ');
             await connection.query(initVars);
 
-            // Build placeholders - use @var for OUT params
-            let paramIndex = 0;
-            let outIndex = 0;
+            // Build SQL with @var for OUT params, ? for IN params
+            let varIndex = 0;
             const placeholders = params
                 .map((p) => {
                     if (p === null || p === undefined) {
-                        return `@${outParamNames[outIndex++]}`;
+                        return sessionVars[varIndex++];
                     }
                     return '?';
                 })
                 .join(',');
 
-            // Filter only IN params for the query
+            // Filter only IN params for values array
             const inParams = params.filter(
                 (p) => p !== null && p !== undefined
             );
@@ -97,7 +101,7 @@ const callProcedure = async (
             const [results] = await connection.query(sql, inParams);
 
             // Fetch OUT param values
-            const selectVars = `SELECT ${outParamNames.map((name) => `@${name} as ${name}`).join(', ')}`;
+            const selectVars = `SELECT ${sessionVars.map((v, i) => `${v} as ${outParamNames[i]}`).join(', ')}`;
             const [outResults] = await connection.query(selectVars);
 
             // Return combined results

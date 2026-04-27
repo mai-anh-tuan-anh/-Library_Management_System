@@ -43,15 +43,15 @@ const borrowService = {
         return response.data;
     },
 
-    // Process return (legacy)
-    processReturn: async (data) => {
-        const response = await api.post('/returns', data);
+    // Process return by detail_id
+    returnBook: async (data) => {
+        const response = await api.post('/borrowings/returns', data);
         return response.data;
     },
 
     // Process return by barcode (new)
     processReturnByBarcode: async (data) => {
-        const response = await api.post('/returns/barcode', data);
+        const response = await api.post('/borrowings/returns/barcode', data);
         return response.data;
     },
 

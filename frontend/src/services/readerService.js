@@ -27,6 +27,12 @@ const readerService = {
         return response.data;
     },
 
+    // Get reader borrowing history (all transactions)
+    getBorrowHistory: async (id) => {
+        const response = await api.get(`/readers/${id}/history`);
+        return response.data;
+    },
+
     // Create new reader
     create: async (data) => {
         const response = await api.post('/readers', data);

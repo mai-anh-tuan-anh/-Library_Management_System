@@ -292,6 +292,8 @@ CREATE TABLE borrow_details (
     borrow_days INT NOT NULL,
     daily_fee DECIMAL(8, 2) NOT NULL,
     subtotal DECIMAL(10, 2) NOT NULL,
+    status VARCHAR(20) DEFAULT 'borrowed',
+    actual_return_date DATE NULL,
     FOREIGN KEY (transaction_id) REFERENCES borrow_transactions(transaction_id) ON DELETE CASCADE,
     FOREIGN KEY (copy_id) REFERENCES book_copies(copy_id),
     FOREIGN KEY (book_id) REFERENCES books(book_id),
@@ -330,12 +332,11 @@ CREATE TABLE return_records (
     return_id INT PRIMARY KEY AUTO_INCREMENT,
     transaction_id INT NOT NULL,
     detail_id INT NOT NULL,
-    copy_id INT NOT NULL,
     returned_by INT NOT NULL,
     return_date DATETIME DEFAULT CURRENT_TIMESTAMP,
     expected_return_date DATE NOT NULL,
     days_late INT DEFAULT 0,
-    late_fee DECIMAL(10, 2) DEFAULT 0.00,  -- Phí trễ: 50% x borrow_price_per_day x days_late
+    late_fee DECIMAL(10, 2) DEFAULT 0.00,  -- Phí trễ: % x giá sách x số ngày (lấy từ settings)
     is_damaged BOOLEAN DEFAULT FALSE,
     damage_type_id INT,
     damage_description TEXT,
@@ -349,7 +350,6 @@ CREATE TABLE return_records (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (transaction_id) REFERENCES borrow_transactions(transaction_id),
     FOREIGN KEY (detail_id) REFERENCES borrow_details(detail_id),
-    FOREIGN KEY (copy_id) REFERENCES book_copies(copy_id),
     FOREIGN KEY (returned_by) REFERENCES users(user_id),
     FOREIGN KEY (damage_type_id) REFERENCES damage_types(damage_type_id),
     FOREIGN KEY (fine_payment_method_id) REFERENCES payment_methods(method_id) ON DELETE SET NULL,
@@ -548,9 +548,10 @@ INSERT INTO system_settings (setting_key, setting_value, setting_group, descript
 ('enable_auto_notifications', 'true', 'notifications', 'Bật/tắt gửi thông báo tự động');
 
 -- Insert default admin user (password: admin123)
--- In production, use proper password hashing
+-- bcrypt hash for 'admin123' generated with bcryptjs
 INSERT INTO users (email, password_hash, full_name, phone, is_active) VALUES
-('admin@library.vn', '$2a$10$YourHashedPasswordHere', 'System Administrator', '0900000000', TRUE);
+('admin@library.vn', '$2a$10$cQvhs0/c2YD/v3wQklEx5O3UGD5SSH5CJRG3NFVtvgPCMOtqtl.Yy', 'System Administrator', '0900000000', TRUE)
+ON DUPLICATE KEY UPDATE password_hash = password_hash; -- Don't overwrite existing password
 
 -- Assign admin role
 INSERT INTO user_roles (user_id, role_id) VALUES (1, 1);
@@ -561,21 +562,32 @@ INSERT INTO user_roles (user_id, role_id) VALUES (1, 1);
 
 DELIMITER //
 
--- Function: Calculate late fee
+-- Function: Calculate late fee (with rate from settings)
 CREATE FUNCTION calculate_late_fee(
     p_book_price DECIMAL(10, 2),
-    p_days_late INT,
-    p_late_rate DECIMAL(5, 2)
+    p_days_late INT
 ) RETURNS DECIMAL(10, 2)
-DETERMINISTIC
+NOT DETERMINISTIC
+READS SQL DATA
 BEGIN
     DECLARE v_late_fee DECIMAL(10, 2);
+    DECLARE v_late_rate DECIMAL(5, 2);
+    
+    -- Get late penalty percentage from settings (default 50%)
+    SELECT COALESCE(CAST(setting_value AS DECIMAL(5,2)), 50.00)
+    INTO v_late_rate
+    FROM system_settings
+    WHERE setting_key = 'late_penalty_percent';
+    
+    IF v_late_rate IS NULL THEN
+        SET v_late_rate = 50.00;
+    END IF;
     
     IF p_days_late <= 0 THEN
         RETURN 0.00;
     END IF;
     
-    SET v_late_fee = p_book_price * (p_late_rate / 100);
+    SET v_late_fee = p_book_price * (v_late_rate / 100) * p_days_late;
     
     RETURN ROUND(v_late_fee, 2);
 END //
@@ -964,6 +976,7 @@ BEGIN
     DECLARE v_total_books INT;
     DECLARE v_total_fee DECIMAL(10, 2);
     DECLARE v_reader_id INT;
+    DECLARE v_due_date DATE;
     
     -- Start transaction
     START TRANSACTION;
@@ -982,15 +995,22 @@ BEGIN
     WHERE bd.transaction_id = p_transaction_id
     GROUP BY bt.reader_id;
     
+    -- Calculate due_date = MAX(borrow_date + borrow_days) of all books
+    SELECT MAX(DATE_ADD(NOW(), INTERVAL bd.borrow_days DAY))
+    INTO v_due_date
+    FROM borrow_details bd
+    WHERE bd.transaction_id = p_transaction_id;
+    
     IF v_total_books IS NULL OR v_total_books = 0 THEN
         SET p_success = FALSE;
         SET p_message = 'No books in transaction';
         ROLLBACK;
     ELSE
-        -- Update transaction
+        -- Update transaction with calculated due_date
         UPDATE borrow_transactions 
         SET total_books = v_total_books,
             borrow_fee = v_total_fee,
+            expected_return_date = v_due_date,
             payment_status = 'paid',
             payment_date = NOW()
         WHERE transaction_id = p_transaction_id;
@@ -1003,6 +1023,60 @@ BEGIN
     
     -- Return OUT params as result set
     SELECT p_success, p_message;
+END //
+
+-- Procedure: Update transaction status based on individual book due dates
+CREATE PROCEDURE sp_update_transaction_overdue_status(
+    IN p_transaction_id INT
+)
+BEGIN
+    DECLARE v_has_unreturned BOOLEAN DEFAULT FALSE;
+    DECLARE v_has_overdue BOOLEAN DEFAULT FALSE;
+    DECLARE v_all_returned BOOLEAN DEFAULT TRUE;
+    DECLARE v_total_books INT DEFAULT 0;
+    DECLARE v_returned_books INT DEFAULT 0;
+    
+    -- Count total and returned books in transaction
+    SELECT 
+        COUNT(*), 
+        COUNT(CASE WHEN bc.status = 'available' THEN 1 END)
+    INTO v_total_books, v_returned_books
+    FROM borrow_details bd
+    JOIN book_copies bc ON bd.copy_id = bc.copy_id
+    WHERE bd.transaction_id = p_transaction_id;
+    
+    -- Check if there are any unreturned books
+    SET v_has_unreturned = (v_total_books > v_returned_books);
+    SET v_all_returned = (v_total_books = v_returned_books);
+    
+    -- Check if any unreturned book is overdue
+    SELECT COUNT(*) > 0 INTO v_has_overdue
+    FROM borrow_details bd
+    JOIN borrow_transactions bt ON bd.transaction_id = bt.transaction_id
+    JOIN book_copies bc ON bd.copy_id = bc.copy_id
+    WHERE bd.transaction_id = p_transaction_id
+    AND bc.status = 'borrowed'
+    AND DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY) < CURDATE();
+    
+    -- Update transaction status
+    IF v_all_returned THEN
+        -- All books returned - mark as completed
+        UPDATE borrow_transactions 
+        SET status = 'completed'
+        WHERE transaction_id = p_transaction_id;
+    ELSEIF v_has_overdue THEN
+        -- Has overdue books
+        UPDATE borrow_transactions 
+        SET status = 'overdue'
+        WHERE transaction_id = p_transaction_id 
+        AND status != 'completed';
+    ELSEIF v_has_unreturned THEN
+        -- Has unreturned books but not overdue yet
+        UPDATE borrow_transactions 
+        SET status = 'active'
+        WHERE transaction_id = p_transaction_id
+        AND status NOT IN ('completed', 'overdue');
+    END IF;
 END //
 
 -- Procedure: Process return with fine calculation (by barcode)
@@ -1375,12 +1449,12 @@ BEGIN
         bt.transaction_id,
         bt.transaction_code,
         bt.borrow_date,
-        bt.expected_return_date,
+        DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY) as expected_return_date,
         bt.borrow_fee,
-        DATEDIFF(bt.expected_return_date, CURDATE()) as days_remaining,
+        DATEDIFF(DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY), CURDATE()) as days_remaining,
         CASE 
-            WHEN DATEDIFF(bt.expected_return_date, CURDATE()) < 0 THEN 'overdue'
-            WHEN DATEDIFF(bt.expected_return_date, CURDATE()) <= 3 THEN 'due_soon'
+            WHEN DATEDIFF(DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY), CURDATE()) < 0 THEN 'overdue'
+            WHEN DATEDIFF(DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY), CURDATE()) <= 3 THEN 'due_soon'
             ELSE 'normal'
         END as urgency_status,
         bd.detail_id,
@@ -1399,10 +1473,11 @@ BEGIN
     JOIN books b ON bd.book_id = b.book_id
     WHERE bt.reader_id = p_reader_id
     AND bt.status = 'active'
+    AND bc.status = 'borrowed'
     AND NOT EXISTS (
         SELECT 1 FROM return_records rr WHERE rr.detail_id = bd.detail_id
     )
-    ORDER BY bt.expected_return_date;
+    ORDER BY days_remaining ASC;
 END //
 
 DELIMITER ;
@@ -1417,11 +1492,21 @@ SELECT
     DATE(bt.payment_date) as revenue_date,
     COUNT(DISTINCT bt.transaction_id) as borrow_transactions,
     SUM(bt.borrow_fee) as borrow_revenue,
-    (SELECT COALESCE(SUM(rr.fine_amount), 0) 
-     FROM return_records rr 
+    (SELECT COALESCE(SUM(
+        calculate_late_fee(b.price, GREATEST(0, DATEDIFF(rr.return_date, DATE_ADD(bt2.borrow_date, INTERVAL bd.borrow_days DAY)))) + COALESCE(rr.damage_fee, 0)
+    ), 0)
+     FROM return_records rr
+     JOIN borrow_details bd ON rr.detail_id = bd.detail_id
+     JOIN books b ON bd.book_id = b.book_id
+     JOIN borrow_transactions bt2 ON bd.transaction_id = bt2.transaction_id
      WHERE DATE(rr.fine_payment_date) = DATE(bt.payment_date) AND rr.fine_paid = TRUE) as fine_revenue,
-    SUM(bt.borrow_fee) + (SELECT COALESCE(SUM(rr.fine_amount), 0) 
-                           FROM return_records rr 
+    SUM(bt.borrow_fee) + (SELECT COALESCE(SUM(
+        calculate_late_fee(b.price, GREATEST(0, DATEDIFF(rr.return_date, DATE_ADD(bt2.borrow_date, INTERVAL bd.borrow_days DAY)))) + COALESCE(rr.damage_fee, 0)
+    ), 0)
+                           FROM return_records rr
+                           JOIN borrow_details bd ON rr.detail_id = bd.detail_id
+                           JOIN books b ON bd.book_id = b.book_id
+                           JOIN borrow_transactions bt2 ON bd.transaction_id = bt2.transaction_id
                            WHERE DATE(rr.fine_payment_date) = DATE(bt.payment_date) AND rr.fine_paid = TRUE) as total_revenue,
     SUM(CASE WHEN bt.payment_method_id = 1 THEN bt.borrow_fee ELSE 0 END) as cash_revenue,
     SUM(CASE WHEN bt.payment_method_id != 1 THEN bt.borrow_fee ELSE 0 END) as banking_revenue
@@ -1439,15 +1524,25 @@ SELECT
     STR_TO_DATE(CONCAT(YEAR(bt.payment_date), '-', WEEK(bt.payment_date), ' Monday'), '%X-%V %W') as week_start,
     COUNT(DISTINCT bt.transaction_id) as borrow_transactions,
     SUM(bt.borrow_fee) as borrow_revenue,
-    (SELECT COALESCE(SUM(rr.fine_amount), 0) 
-     FROM return_records rr 
-     WHERE YEAR(rr.fine_payment_date) = YEAR(bt.payment_date) 
-     AND WEEK(rr.fine_payment_date) = WEEK(bt.payment_date) 
+    (SELECT COALESCE(SUM(
+        calculate_late_fee(b.price, GREATEST(0, DATEDIFF(rr.return_date, DATE_ADD(bt2.borrow_date, INTERVAL bd.borrow_days DAY)))) + COALESCE(rr.damage_fee, 0)
+    ), 0)
+     FROM return_records rr
+     JOIN borrow_details bd ON rr.detail_id = bd.detail_id
+     JOIN books b ON bd.book_id = b.book_id
+     JOIN borrow_transactions bt2 ON bd.transaction_id = bt2.transaction_id
+     WHERE YEAR(rr.fine_payment_date) = YEAR(bt.payment_date)
+     AND WEEK(rr.fine_payment_date) = WEEK(bt.payment_date)
      AND rr.fine_paid = TRUE) as fine_revenue,
-    SUM(bt.borrow_fee) + (SELECT COALESCE(SUM(rr.fine_amount), 0) 
-                           FROM return_records rr 
-                           WHERE YEAR(rr.fine_payment_date) = YEAR(bt.payment_date) 
-                           AND WEEK(rr.fine_payment_date) = WEEK(bt.payment_date) 
+    SUM(bt.borrow_fee) + (SELECT COALESCE(SUM(
+        calculate_late_fee(b.price, GREATEST(0, DATEDIFF(rr.return_date, DATE_ADD(bt2.borrow_date, INTERVAL bd.borrow_days DAY)))) + COALESCE(rr.damage_fee, 0)
+    ), 0)
+                           FROM return_records rr
+                           JOIN borrow_details bd ON rr.detail_id = bd.detail_id
+                           JOIN books b ON bd.book_id = b.book_id
+                           JOIN borrow_transactions bt2 ON bd.transaction_id = bt2.transaction_id
+                           WHERE YEAR(rr.fine_payment_date) = YEAR(bt.payment_date)
+                           AND WEEK(rr.fine_payment_date) = WEEK(bt.payment_date)
                            AND rr.fine_paid = TRUE) as total_revenue
 FROM borrow_transactions bt
 WHERE bt.payment_status = 'paid'
@@ -1463,18 +1558,72 @@ SELECT
     DATE_FORMAT(bt.payment_date, '%M %Y') as month_name,
     COUNT(DISTINCT bt.transaction_id) as borrow_transactions,
     SUM(bt.borrow_fee) as borrow_revenue,
-    (SELECT COALESCE(SUM(rr.fine_amount), 0) 
-     FROM return_records rr 
-     WHERE DATE_FORMAT(rr.fine_payment_date, '%Y-%m') = DATE_FORMAT(bt.payment_date, '%Y-%m') 
+    (SELECT COALESCE(SUM(
+        calculate_late_fee(b.price, GREATEST(0, DATEDIFF(rr.return_date, DATE_ADD(bt2.borrow_date, INTERVAL bd.borrow_days DAY)))) + COALESCE(rr.damage_fee, 0)
+    ), 0)
+     FROM return_records rr
+     JOIN borrow_details bd ON rr.detail_id = bd.detail_id
+     JOIN books b ON bd.book_id = b.book_id
+     JOIN borrow_transactions bt2 ON bd.transaction_id = bt2.transaction_id
+     WHERE DATE_FORMAT(rr.fine_payment_date, '%Y-%m') = DATE_FORMAT(bt.payment_date, '%Y-%m')
      AND rr.fine_paid = TRUE) as fine_revenue,
-    SUM(bt.borrow_fee) + (SELECT COALESCE(SUM(rr.fine_amount), 0) 
-                           FROM return_records rr 
-                           WHERE DATE_FORMAT(rr.fine_payment_date, '%Y-%m') = DATE_FORMAT(bt.payment_date, '%Y-%m') 
+    SUM(bt.borrow_fee) + (SELECT COALESCE(SUM(
+        calculate_late_fee(b.price, GREATEST(0, DATEDIFF(rr.return_date, DATE_ADD(bt2.borrow_date, INTERVAL bd.borrow_days DAY)))) + COALESCE(rr.damage_fee, 0)
+    ), 0)
+                           FROM return_records rr
+                           JOIN borrow_details bd ON rr.detail_id = bd.detail_id
+                           JOIN books b ON bd.book_id = b.book_id
+                           JOIN borrow_transactions bt2 ON bd.transaction_id = bt2.transaction_id
+                           WHERE DATE_FORMAT(rr.fine_payment_date, '%Y-%m') = DATE_FORMAT(bt.payment_date, '%Y-%m')
                            AND rr.fine_paid = TRUE) as total_revenue
 FROM borrow_transactions bt
 WHERE bt.payment_status = 'paid'
 GROUP BY DATE_FORMAT(bt.payment_date, '%Y-%m'), YEAR(bt.payment_date), MONTH(bt.payment_date)
 ORDER BY year DESC, month DESC;
+
+-- View: Revenue summary by day (last 7 days)
+CREATE VIEW vw_revenue_daily AS
+SELECT 
+    DATE(bt.payment_date) as revenue_date,
+    DATE_FORMAT(bt.payment_date, '%d/%m') as date_formatted,
+    DAYNAME(bt.payment_date) as day_name,
+    COUNT(DISTINCT bt.transaction_id) as borrow_transactions,
+    SUM(bt.borrow_fee) as borrow_revenue,
+    (SELECT COALESCE(SUM(rr.fine_amount), 0) 
+     FROM return_records rr 
+     WHERE DATE(rr.fine_payment_date) = DATE(bt.payment_date)
+     AND rr.fine_paid = TRUE) as fine_revenue,
+    SUM(bt.borrow_fee) + (SELECT COALESCE(SUM(rr.fine_amount), 0) 
+                           FROM return_records rr 
+                           WHERE DATE(rr.fine_payment_date) = DATE(bt.payment_date)
+                           AND rr.fine_paid = TRUE) as total_revenue
+FROM borrow_transactions bt
+WHERE bt.payment_status = 'paid'
+  AND bt.payment_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+GROUP BY DATE(bt.payment_date), DATE_FORMAT(bt.payment_date, '%d/%m'), DAYNAME(bt.payment_date)
+ORDER BY revenue_date DESC;
+
+-- View: Revenue summary by week (last 4 weeks)
+DROP VIEW IF EXISTS vw_revenue_weekly;
+CREATE VIEW vw_revenue_weekly AS
+SELECT 
+    CONCAT('Tuần ', WEEK(bt.payment_date, 1) - WEEK(DATE_FORMAT(bt.payment_date, '%Y-%m-01'), 1) + 1) as week_label,
+    CONCAT('Tuần ', WEEK(bt.payment_date, 1) - WEEK(DATE_FORMAT(bt.payment_date, '%Y-%m-01'), 1) + 1, ' (', DATE_FORMAT(bt.payment_date, '%m/%Y'), ')') as week_formatted,
+    STR_TO_DATE(CONCAT(YEAR(bt.payment_date), '-', WEEK(bt.payment_date, 1), ' Sunday'), '%X-%V %W') as week_date,
+    COUNT(DISTINCT bt.transaction_id) as borrow_transactions,
+    SUM(bt.borrow_fee) as borrow_revenue,
+    (SELECT COALESCE(SUM(rr.fine_amount), 0) 
+     FROM return_records rr 
+     WHERE YEARWEEK(rr.fine_payment_date, 1) = YEARWEEK(bt.payment_date, 1)
+     AND rr.fine_paid = TRUE) as fine_revenue,
+    SUM(bt.borrow_fee) + (SELECT COALESCE(SUM(rr.fine_amount), 0) 
+                           FROM return_records rr 
+                           WHERE YEARWEEK(rr.fine_payment_date, 1) = YEARWEEK(bt.payment_date, 1)
+                           AND rr.fine_paid = TRUE) as total_revenue
+FROM borrow_transactions bt
+WHERE bt.payment_status = 'paid'
+  AND bt.payment_date >= DATE_SUB(CURDATE(), INTERVAL 4 WEEK)
+GROUP BY YEARWEEK(bt.payment_date, 1), week_label, week_formatted, week_date;
 
 -- View: Top borrowed books
 CREATE VIEW vw_top_books AS
@@ -1641,6 +1790,54 @@ SELECT
     (SELECT COUNT(*) FROM vw_books_due_soon WHERE urgency_status = 'due_soon') as books_due_soon,
     (SELECT COUNT(*) FROM vw_overdue_books) as overdue_books_count;
 
+-- View: Book-level alerts for individual book tracking
+CREATE VIEW vw_book_alerts AS
+SELECT 
+    bd.detail_id,
+    bt.transaction_id,
+    bt.transaction_code,
+    bt.reader_id,
+    r.card_number,
+    r.full_name as reader_name,
+    r.phone as reader_phone,
+    r.email as reader_email,
+    b.book_id,
+    b.title as book_title,
+    b.price as book_price,
+    bc.barcode,
+    bd.borrow_days,
+    bt.borrow_date,
+    DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY) as book_due_date,
+    bt.expected_return_date as transaction_due_date,
+    DATEDIFF(DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY), CURDATE()) as days_remaining,
+    CASE 
+        WHEN DATEDIFF(DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY), CURDATE()) < 0 THEN 'overdue'
+        WHEN DATEDIFF(DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY), CURDATE()) <= 2 THEN 'urgent'
+        WHEN DATEDIFF(DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY), CURDATE()) <= 5 THEN 'warning'
+        ELSE 'normal'
+    END as alert_level,
+    CASE 
+        WHEN DATEDIFF(DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY), CURDATE()) < 0 
+            THEN calculate_late_fee(b.price, ABS(DATEDIFF(DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY), CURDATE())), 50.00)
+        ELSE 0
+    END as estimated_fine,
+    NOT EXISTS (SELECT 1 FROM return_records rr WHERE rr.detail_id = bd.detail_id) as is_unreturned
+FROM borrow_details bd
+JOIN borrow_transactions bt ON bd.transaction_id = bt.transaction_id
+JOIN readers r ON bt.reader_id = r.reader_id
+JOIN book_copies bc ON bd.copy_id = bc.copy_id
+JOIN books b ON bc.book_id = b.book_id
+WHERE bt.status IN ('active', 'overdue')
+AND bc.status = 'borrowed'
+ORDER BY 
+    CASE alert_level
+        WHEN 'overdue' THEN 1
+        WHEN 'urgent' THEN 2
+        WHEN 'warning' THEN 3
+        ELSE 4
+    END,
+    days_remaining ASC;
+
 -- =====================================================
 -- EVENTS (Task Scheduling)
 -- =====================================================
@@ -1801,5 +1998,250 @@ INSERT INTO readers (card_number, full_name, date_of_birth, gender, phone, email
 (generate_card_number(), 'Lê Văn C', '1988-12-10', 'male', '0923456789', 'levanc@email.com', '789 Đồng Khởi, Q.1, TP.HCM', 3, 1);
 
 -- =====================================================
+-- Stored Procedure: Process Book Return
+-- =====================================================
+
+DELIMITER //
+
+CREATE PROCEDURE IF NOT EXISTS sp_process_return(
+    IN p_detail_id INT,
+    IN p_condition_on_return VARCHAR(20),
+    IN p_damage_type_id INT,
+    IN p_damage_description TEXT,
+    IN p_fine_payment_method_id INT,
+    OUT p_success BOOLEAN,
+    OUT p_message VARCHAR(255),
+    OUT p_book_title VARCHAR(255),
+    OUT p_days_late INT,
+    OUT p_late_fee DECIMAL(10,2),
+    OUT p_damage_fee DECIMAL(10,2),
+    OUT p_total_fine DECIMAL(10,2),
+    OUT p_return_id INT
+)
+BEGIN
+    DECLARE v_due_date DATE;
+    DECLARE v_actual_return_date DATE DEFAULT CURDATE();
+    DECLARE v_book_price DECIMAL(10,2);
+    DECLARE v_daily_late_fee DECIMAL(10,2) DEFAULT 5000; -- 5000 VND per day
+    DECLARE v_detail_status VARCHAR(20);
+    DECLARE v_book_id INT;
+    DECLARE v_copy_id INT;
+    DECLARE v_transaction_id INT;
+    
+    SET p_success = FALSE;
+    SET p_message = '';
+    SET p_late_fee = 0;
+    SET p_damage_fee = 0;
+    SET p_total_fine = 0;
+    
+    -- Get borrow detail info (calculate due_date from borrow_date + borrow_days)
+    SELECT DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY), bd.status, b.title, b.price, bd.book_id, bc.copy_id, bd.transaction_id
+    INTO v_due_date, v_detail_status, p_book_title, v_book_price, v_book_id, v_copy_id, v_transaction_id
+    FROM borrow_details bd
+    JOIN books b ON bd.book_id = b.book_id
+    JOIN book_copies bc ON bd.copy_id = bc.copy_id
+    JOIN borrow_transactions bt ON bd.transaction_id = bt.transaction_id
+    WHERE bd.detail_id = p_detail_id;
+    
+    -- Check if detail exists and copy is valid
+    IF v_due_date IS NULL THEN
+        SET p_message = 'Không tìm thấy thông tin mượn sách';
+        SELECT p_success, p_message, p_book_title, p_days_late, p_late_fee, p_damage_fee, p_total_fine, p_return_id, p_copy_id;
+    END IF;
+    
+    IF v_copy_id IS NULL THEN
+        SET p_message = 'Không tìm thấy thông tin bản sao sách (có thể đã bị xóa)';
+        SELECT p_success, p_message, p_book_title, p_days_late, p_late_fee, p_damage_fee, p_total_fine, p_return_id;
+    END IF;
+    
+    -- Verify copy still exists in book_copies (for FK constraint)
+    IF NOT EXISTS (SELECT 1 FROM book_copies WHERE copy_id = v_copy_id) THEN
+        SET p_message = 'Bản sao sách không tồn tại trong hệ thống (có thể đã bị xóa)';
+        SELECT p_success, p_message, p_book_title, p_days_late, p_late_fee, p_damage_fee, p_total_fine, p_return_id;
+    END IF;
+    
+    -- Check if already returned
+    IF v_detail_status = 'returned' THEN
+        SET p_message = 'Sách đã được trả trước đó';
+        SELECT p_success, p_message, p_book_title, p_days_late, p_late_fee, p_damage_fee, p_total_fine, p_return_id;
+    END IF;
+    
+    -- Calculate days late
+    IF v_actual_return_date > v_due_date THEN
+        SET p_days_late = DATEDIFF(v_actual_return_date, v_due_date);
+    ELSE
+        SET p_days_late = 0;
+    END IF;
+    
+    -- Calculate late fee using calculate_late_fee function (gets % from settings)
+    IF p_condition_on_return != 'lost' AND p_days_late > 0 THEN
+        SET p_late_fee = calculate_late_fee(v_book_price, p_days_late);
+    END IF;
+    
+    -- Calculate damage/lost fee
+    CASE p_condition_on_return
+        WHEN 'fair' THEN SET p_damage_fee = v_book_price * 0.3;  -- 30% for minor damage
+        WHEN 'poor' THEN SET p_damage_fee = v_book_price * 0.7;  -- 70% for major damage
+        WHEN 'lost' THEN SET p_damage_fee = v_book_price;      -- 100% for lost
+        ELSE SET p_damage_fee = 0;
+    END CASE;
+    
+    -- Total fine
+    SET p_total_fine = p_late_fee + p_damage_fee;
+    
+    -- Create return record
+    INSERT INTO return_records (detail_id, return_date, condition_on_return, 
+                                days_late, late_fee, damage_fee, fine_amount, fine_paid)
+    VALUES (p_detail_id, CURDATE(), p_condition_on_return,
+            p_days_late, p_late_fee, p_damage_fee, p_total_fine, 
+            CASE WHEN p_total_fine > 0 THEN TRUE ELSE FALSE END);
+    
+    SET p_return_id = LAST_INSERT_ID();
+    
+    -- Update borrow detail status
+    UPDATE borrow_details 
+    SET status = 'returned', actual_return_date = v_actual_return_date
+    WHERE detail_id = p_detail_id;
+    
+    -- Update book copy status (if not lost - lost will be deleted separately)
+    IF p_condition_on_return != 'lost' THEN
+        UPDATE book_copies 
+        SET status = 'available', condition_status = p_condition_on_return
+        WHERE copy_id = v_copy_id;
+    END IF;
+    
+    -- Check if all books in this transaction are returned, if yes mark as completed
+    IF NOT EXISTS (
+        SELECT 1 FROM borrow_details bd2
+        WHERE bd2.transaction_id = v_transaction_id AND bd2.status != 'returned'
+    ) THEN
+        UPDATE borrow_transactions 
+        SET status = 'completed', updated_at = NOW()
+        WHERE transaction_id = v_transaction_id;
+    END IF;
+    
+    SET p_success = TRUE;
+    SET p_message = 'Trả sách thành công';
+    
+    SELECT p_success, p_message, p_book_title, p_days_late, p_late_fee, p_damage_fee, p_total_fine, p_return_id, p_copy_id;
+END //
+
+DELIMITER ;
+
+-- =====================================================
 -- END OF DATABASE SCHEMA
 -- =====================================================
+DROP PROCEDURE IF EXISTS sp_process_return;
+
+DELIMITER //
+
+CREATE PROCEDURE sp_process_return(
+    IN p_detail_id INT,
+    IN p_condition_on_return VARCHAR(20),
+    IN p_damage_type_id INT,
+    IN p_damage_description TEXT,
+    IN p_fine_payment_method_id INT,
+    IN p_returned_by INT,
+    OUT p_success BOOLEAN,
+    OUT p_message VARCHAR(255),
+    OUT p_book_title VARCHAR(255),
+    OUT p_days_late INT,
+    OUT p_late_fee DECIMAL(10,2),
+    OUT p_damage_fee DECIMAL(10,2),
+    OUT p_total_fine DECIMAL(10,2),
+    OUT p_return_id INT
+)
+BEGIN
+    DECLARE v_due_date DATE;
+    DECLARE v_actual_return_date DATE DEFAULT CURDATE();
+    DECLARE v_book_price DECIMAL(10,2);
+    DECLARE v_daily_late_fee DECIMAL(10,2) DEFAULT 5000;
+    DECLARE v_detail_status VARCHAR(20);
+    DECLARE v_book_id INT;
+    DECLARE v_copy_id INT;
+    DECLARE v_transaction_id INT;
+    
+    SET p_success = FALSE;
+    SET p_message = '';
+    SET p_late_fee = 0;
+    SET p_damage_fee = 0;
+    SET p_total_fine = 0;
+    
+    -- FIX: Default returned_by to 1 if NULL
+    IF p_returned_by IS NULL OR p_returned_by = 0 THEN
+        SET p_returned_by = 1;
+    END IF;
+    
+    -- Get borrow detail info
+    SELECT DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY), bd.status, b.title, b.price, bd.book_id, bc.copy_id, bd.transaction_id
+    INTO v_due_date, v_detail_status, p_book_title, v_book_price, v_book_id, v_copy_id, v_transaction_id
+    FROM borrow_details bd
+    JOIN books b ON bd.book_id = b.book_id
+    JOIN book_copies bc ON bd.copy_id = bc.copy_id
+    JOIN borrow_transactions bt ON bd.transaction_id = bt.transaction_id
+    WHERE bd.detail_id = p_detail_id;
+    
+    -- Check if detail exists
+    IF v_due_date IS NULL THEN
+        SET p_message = 'Không tìm thấy thông tin mượn sách';
+        SELECT p_success, p_message, p_book_title, p_days_late, p_late_fee, p_damage_fee, p_total_fine, p_return_id;
+    END IF;
+    
+    -- Check if already returned
+    IF v_detail_status = 'returned' THEN
+        SET p_message = 'Sách đã được trả trước đó';
+        SELECT p_success, p_message, p_book_title, p_days_late, p_late_fee, p_damage_fee, p_total_fine, p_return_id;
+    END IF;
+    
+    -- Calculate days late
+    SET p_days_late = GREATEST(0, DATEDIFF(CURDATE(), v_due_date));
+    
+    -- Calculate late fee using calculate_late_fee function
+    IF p_condition_on_return != 'lost' AND p_days_late > 0 THEN
+        SET p_late_fee = calculate_late_fee(v_book_price, p_days_late);
+    END IF;
+    
+    -- Calculate damage/lost fee
+    CASE p_condition_on_return
+        WHEN 'fair' THEN SET p_damage_fee = v_book_price * 0.3;
+        WHEN 'poor' THEN SET p_damage_fee = v_book_price * 0.7;
+        WHEN 'damaged' THEN SET p_damage_fee = v_book_price * 0.7;
+        WHEN 'lost' THEN SET p_damage_fee = v_book_price;
+        ELSE SET p_damage_fee = 0;
+    END CASE;
+    
+    -- Total fine
+    SET p_total_fine = p_late_fee + p_damage_fee;
+    
+    -- Create return record
+    INSERT INTO return_records (transaction_id, detail_id, returned_by, return_date, condition_on_return, 
+                                days_late, late_fee, damage_fee, fine_amount, fine_paid)
+    VALUES (v_transaction_id, p_detail_id, p_returned_by, CURDATE(), p_condition_on_return,
+            p_days_late, p_late_fee, p_damage_fee, p_total_fine, 
+            CASE WHEN p_total_fine > 0 THEN TRUE ELSE FALSE END);
+    
+    SET p_return_id = LAST_INSERT_ID();
+    
+    -- Update book copy status
+    UPDATE book_copies SET status = 'available' WHERE copy_id = v_copy_id;
+    
+    -- Update borrow detail status
+    UPDATE borrow_details SET status = 'returned' WHERE detail_id = p_detail_id;
+    
+    -- Check if all books returned
+    IF NOT EXISTS (
+        SELECT 1 FROM borrow_details bd2
+        WHERE bd2.transaction_id = v_transaction_id AND bd2.status != 'returned'
+    ) THEN
+        UPDATE borrow_transactions 
+        SET status = 'completed', updated_at = NOW()
+        WHERE transaction_id = v_transaction_id;
+    END IF;
+    
+    SET p_success = TRUE;
+    SET p_message = 'Trả sách thành công';
+    
+    SELECT p_success, p_message, p_book_title, p_days_late, p_late_fee, p_damage_fee, p_total_fine, p_return_id;
+END //
+
+DELIMITER ;

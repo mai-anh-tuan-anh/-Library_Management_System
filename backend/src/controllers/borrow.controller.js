@@ -39,12 +39,15 @@ const getAllBorrowings = asyncHandler(async (req, res) => {
     const transactions = await query(
         `SELECT bt.*, r.full_name as reader_name, r.card_number, r.phone,
             GROUP_CONCAT(DISTINCT b.title SEPARATOR '; ') as book_titles,
-            COUNT(DISTINCT bd.detail_id) as book_count
+            COUNT(DISTINCT bd.detail_id) as book_count,
+            bt.borrow_fee + COALESCE(SUM(rr.fine_amount), 0) as total_fee,
+            SUM(GREATEST(0, DATEDIFF(CURDATE(), DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY)))) as total_days_overdue
      FROM borrow_transactions bt
      JOIN readers r ON bt.reader_id = r.reader_id
      LEFT JOIN borrow_details bd ON bt.transaction_id = bd.transaction_id
      LEFT JOIN book_copies bc ON bd.copy_id = bc.copy_id
      LEFT JOIN books b ON bc.book_id = b.book_id
+     LEFT JOIN return_records rr ON rr.detail_id = bd.detail_id
      ${whereClause}
      GROUP BY bt.transaction_id
      ORDER BY bt.created_at DESC
@@ -83,20 +86,36 @@ const getBorrowingById = asyncHandler(async (req, res) => {
         });
     }
 
-    const details = await query(
-        `SELECT bd.*, b.title, b.price, bc.barcode
+    const books = await query(
+        `SELECT bd.*, b.title as book_title, b.price, bc.barcode, bc.condition_status as original_condition,
+            DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY) as due_date,
+            GREATEST(0, DATEDIFF(COALESCE(rr.return_date, CURDATE()), DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY))) as days_overdue,
+            calculate_late_fee(b.price, GREATEST(0, DATEDIFF(COALESCE(rr.return_date, CURDATE()), DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY)))) as late_fee,
+            COALESCE(rr.damage_fee, 0) as damage_fee,
+            COALESCE(calculate_late_fee(b.price, GREATEST(0, DATEDIFF(COALESCE(rr.return_date, CURDATE()), DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY)))), 0) + COALESCE(rr.damage_fee, 0) as fine_amount,
+            COALESCE(bd.subtotal, 0) + COALESCE(calculate_late_fee(b.price, GREATEST(0, DATEDIFF(COALESCE(rr.return_date, CURDATE()), DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY)))), 0) + COALESCE(rr.damage_fee, 0) as total_fee
      FROM borrow_details bd
      JOIN books b ON bd.book_id = b.book_id
      JOIN book_copies bc ON bd.copy_id = bc.copy_id
+     JOIN borrow_transactions bt ON bd.transaction_id = bt.transaction_id
+     LEFT JOIN return_records rr ON rr.detail_id = bd.detail_id
      WHERE bd.transaction_id = ?`,
         [id]
     );
+
+    // Calculate total fee including fines for returned books
+    const totalFines = books.reduce(
+        (sum, book) => sum + parseFloat(book.fine_amount || 0),
+        0
+    );
+    const borrowFee = parseFloat(transactions[0].borrow_fee || 0);
 
     res.json({
         success: true,
         data: {
             ...transactions[0],
-            details
+            books,
+            total_fee: borrowFee + totalFines
         }
     });
 });
@@ -310,32 +329,53 @@ const processReturnByBarcode = asyncHandler(async (req, res) => {
         fine_payment_method_id
     } = req.body;
 
-    // Call stored procedure with all 9 params: 6 IN + 3 OUT
-    let results;
+    // Call stored procedure with direct SQL using @var for OUT params
+    let result;
     try {
-        results = await callProcedure(
-            'sp_process_return_by_barcode',
-            [
-                barcode,
-                req.user.user_id,
-                condition_on_return || 'good',
-                damage_type_id || null,
-                damage_description || '',
-                fine_payment_method_id || null,
-                null, // OUT p_success
-                null, // OUT p_message
-                null // OUT p_total_fine
-            ],
-            [
-                'p_success',
-                'p_message',
-                'p_total_fine',
-                'p_book_title',
-                'p_days_late',
-                'p_late_fee',
-                'p_damage_fee'
-            ]
-        );
+        const results = await transaction(async (conn) => {
+            // Initialize session variables for OUT params
+            await conn.query(`
+                SET @p_success = NULL, 
+                    @p_message = NULL, 
+                    @p_total_fine = NULL,
+                    @p_book_title = NULL,
+                    @p_days_late = NULL,
+                    @p_late_fee = NULL,
+                    @p_damage_fee = NULL
+            `);
+
+            // Call procedure with @var for OUT params
+            await conn.query(
+                `
+                CALL sp_process_return_by_barcode(?, ?, ?, ?, ?, ?, 
+                    @p_success, @p_message, @p_total_fine, 
+                    @p_book_title, @p_days_late, @p_late_fee, @p_damage_fee)
+            `,
+                [
+                    barcode,
+                    req.user.user_id,
+                    condition_on_return || 'good',
+                    damage_type_id || null,
+                    damage_description || '',
+                    fine_payment_method_id || null
+                ]
+            );
+
+            // Fetch OUT param values
+            const [outResults] = await conn.query(`
+                SELECT @p_success as p_success, 
+                       @p_message as p_message, 
+                       @p_total_fine as p_total_fine,
+                       @p_book_title as p_book_title,
+                       @p_days_late as p_days_late,
+                       @p_late_fee as p_late_fee,
+                       @p_damage_fee as p_damage_fee
+            `);
+
+            return outResults[0];
+        });
+
+        result = results;
     } catch (error) {
         return res.status(500).json({
             success: false,
@@ -343,16 +383,12 @@ const processReturnByBarcode = asyncHandler(async (req, res) => {
         });
     }
 
-    // OUT params are in the LAST result set
-    const lastResultIndex = Array.isArray(results) ? results.length - 1 : 0;
-    if (!results || !results[lastResultIndex] || !results[lastResultIndex][0]) {
+    if (!result || !result.p_success !== undefined) {
         return res.status(500).json({
             success: false,
             message: 'Invalid database response'
         });
     }
-
-    const result = results[lastResultIndex][0];
 
     if (!result.p_success) {
         return res.status(400).json({
@@ -368,6 +404,46 @@ const processReturnByBarcode = asyncHandler(async (req, res) => {
         });
     }
 
+    // If book is lost, delete the copy from system
+    if (condition_on_return === 'lost') {
+        try {
+            // Get copy_id from the first result set
+            const firstResult = results[0] && results[0][0];
+            if (firstResult && firstResult.copy_id) {
+                await query('DELETE FROM book_copies WHERE copy_id = ?', [
+                    firstResult.copy_id
+                ]);
+            }
+        } catch (deleteError) {
+            console.error('Error deleting lost book copy:', deleteError);
+            // Continue even if delete fails - the return was successful
+        }
+    }
+
+    // Save fines to return_fines table if any
+    if (result.p_total_fine > 0) {
+        try {
+            const firstResult = results[0] && results[0][0];
+            if (firstResult && firstResult.return_id) {
+                await query(
+                    `INSERT INTO return_fines (return_id, late_fee, damage_fee, total_fine, 
+                     payment_status, payment_method_id, created_at)
+                     VALUES (?, ?, ?, ?, 'paid', ?, NOW())`,
+                    [
+                        firstResult.return_id,
+                        result.p_late_fee || 0,
+                        result.p_damage_fee || 0,
+                        result.p_total_fine,
+                        fine_payment_method_id || 1
+                    ]
+                );
+            }
+        } catch (fineError) {
+            console.error('Error saving return fine:', fineError);
+            // Continue even if fine save fails - the return was successful
+        }
+    }
+
     res.json({
         success: true,
         message: result.p_message,
@@ -376,7 +452,8 @@ const processReturnByBarcode = asyncHandler(async (req, res) => {
             days_late: result.p_days_late,
             late_fee: result.p_late_fee,
             damage_fee: result.p_damage_fee,
-            total_fine: result.p_total_fine
+            total_fine: result.p_total_fine,
+            book_deleted: condition_on_return === 'lost'
         }
     });
 });
@@ -391,24 +468,70 @@ const processReturn = asyncHandler(async (req, res) => {
         fine_payment_method_id
     } = req.body;
 
-    const results = await callProcedure('sp_process_return', [
-        detail_id,
-        req.user.user_id,
-        condition_on_return,
-        damage_type_id,
-        damage_description,
-        fine_payment_method_id
-    ]);
+    // Call procedure with 5 IN params + 8 OUT params using direct SQL (removed copy_id)
+    let result;
+    try {
+        const results = await transaction(async (conn) => {
+            // Initialize session variables for OUT params (8 params, removed p_copy_id)
+            await conn.query(`
+                SET @p_success = NULL, 
+                    @p_message = NULL, 
+                    @p_book_title = NULL,
+                    @p_days_late = NULL,
+                    @p_late_fee = NULL,
+                    @p_damage_fee = NULL,
+                    @p_total_fine = NULL,
+                    @p_return_id = NULL
+            `);
 
-    const lastResultIndex = Array.isArray(results) ? results.length - 1 : 0;
-    const result = results[lastResultIndex]
-        ? results[lastResultIndex][0]
-        : null;
+            // Call procedure with @var for OUT params
+            await conn.query(
+                `
+                CALL sp_process_return(?, ?, ?, ?, ?, ?, 
+                    @p_success, @p_message, @p_book_title, 
+                    @p_days_late, @p_late_fee, @p_damage_fee,
+                    @p_total_fine, @p_return_id)
+            `,
+                [
+                    detail_id,
+                    condition_on_return,
+                    damage_type_id,
+                    damage_description,
+                    fine_payment_method_id,
+                    req.user.user_id
+                ]
+            );
+
+            // Fetch OUT param values
+            const [outResults] = await conn.query(`
+                SELECT @p_success as p_success, 
+                       @p_message as p_message, 
+                       @p_book_title as p_book_title,
+                       @p_days_late as p_days_late,
+                       @p_late_fee as p_late_fee,
+                       @p_damage_fee as p_damage_fee,
+                       @p_total_fine as p_total_fine,
+                       @p_return_id as p_return_id
+            `);
+
+            return outResults[0];
+        });
+
+        result = results;
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: 'Database procedure error: ' + error.message
+        });
+    }
+
+    console.log('Procedure result:', result);
 
     if (!result || !result.p_success) {
         return res.status(400).json({
             success: false,
-            message: result?.p_message || 'Failed to process return'
+            message: result?.p_message || 'Failed to process return',
+            debug: { result }
         });
     }
 
@@ -484,7 +607,7 @@ const getOverdue = asyncHandler(async (req, res) => {
             mt.tier_name,
             bd.detail_id, b.book_id, b.title as book_title, b.price as book_price, bc.barcode,
             DATEDIFF(CURDATE(), bt.expected_return_date) as days_overdue,
-            calculate_late_fee(b.price, DATEDIFF(CURDATE(), bt.expected_return_date), 50.00) as estimated_fine
+            calculate_late_fee(b.price, DATEDIFF(CURDATE(), bt.expected_return_date)) as estimated_fine
      FROM borrow_transactions bt
      JOIN readers r ON bt.reader_id = r.reader_id
      JOIN membership_tiers mt ON r.tier_id = mt.tier_id

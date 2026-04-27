@@ -49,6 +49,12 @@ const bookService = {
         return response.data;
     },
 
+    // Delete book copy
+    deleteCopy: async (bookId, copyId) => {
+        const response = await api.delete(`/books/${bookId}/copies/${copyId}`);
+        return response.data;
+    },
+
     // Get categories
     getCategories: async () => {
         const response = await api.get('/books/categories');

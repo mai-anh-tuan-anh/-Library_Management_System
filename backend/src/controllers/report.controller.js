@@ -29,22 +29,13 @@ const getRevenueDaily = asyncHandler(async (req, res) => {
 
 // Get revenue weekly
 const getRevenueWeekly = asyncHandler(async (req, res) => {
-    const { year, limit = 12 } = req.query;
-
-    let whereClause = '';
-    const params = [];
-
-    if (year) {
-        whereClause = 'WHERE year = ?';
-        params.push(year);
-    }
+    const { limit = 4 } = req.query;
 
     const revenue = await query(
         `SELECT * FROM vw_revenue_weekly 
-     ${whereClause}
-     ORDER BY year DESC, week_number DESC
+     ORDER BY week_label DESC
      LIMIT ?`,
-        [...params, parseInt(limit)]
+        [parseInt(limit)]
     );
 
     res.json({
@@ -84,9 +75,22 @@ const getTopBooks = asyncHandler(async (req, res) => {
     const { limit = 10 } = req.query;
 
     const books = await query(
-        `SELECT * FROM vw_top_books 
-     ORDER BY total_borrows DESC
-     LIMIT ?`,
+        `SELECT 
+            b.book_id,
+            b.title,
+            b.book_code,
+            c.category_name,
+            COUNT(DISTINCT bd.detail_id) as total_borrows,
+            COUNT(DISTINCT bt.reader_id) as unique_readers,
+            COALESCE(SUM(bd.subtotal), 0) + COALESCE(SUM(rr.fine_amount), 0) as total_revenue
+        FROM books b
+        LEFT JOIN categories c ON b.category_id = c.category_id
+        LEFT JOIN borrow_details bd ON b.book_id = bd.book_id
+        LEFT JOIN borrow_transactions bt ON bd.transaction_id = bt.transaction_id
+        LEFT JOIN return_records rr ON rr.detail_id = bd.detail_id
+        GROUP BY b.book_id, b.title, b.book_code, c.category_name
+        ORDER BY total_borrows DESC, unique_readers DESC, total_revenue DESC, b.title ASC
+        LIMIT ?`,
         [parseInt(limit)]
     );
 
@@ -101,9 +105,22 @@ const getTopReaders = asyncHandler(async (req, res) => {
     const { limit = 10 } = req.query;
 
     const readers = await query(
-        `SELECT * FROM vw_top_readers 
-     ORDER BY total_borrows DESC
-     LIMIT ?`,
+        `SELECT 
+            r.reader_id,
+            r.full_name,
+            r.card_number,
+            mt.tier_name as member_level,
+            COUNT(DISTINCT bt.transaction_id) as total_borrows,
+            COUNT(DISTINCT bd.book_id) as books_read,
+            COALESCE(SUM(bt.borrow_fee), 0) + COALESCE(SUM(rr.fine_amount), 0) as total_spent
+        FROM readers r
+        LEFT JOIN membership_tiers mt ON r.tier_id = mt.tier_id
+        LEFT JOIN borrow_transactions bt ON r.reader_id = bt.reader_id AND bt.status != 'cancelled'
+        LEFT JOIN borrow_details bd ON bt.transaction_id = bd.transaction_id
+        LEFT JOIN return_records rr ON rr.detail_id = bd.detail_id
+        GROUP BY r.reader_id, r.full_name, r.card_number, mt.tier_name
+        ORDER BY total_borrows DESC, total_spent DESC, member_level DESC, books_read DESC, r.full_name ASC
+        LIMIT ?`,
         [parseInt(limit)]
     );
 
@@ -197,33 +214,70 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         `SELECT COUNT(*) as new_copies_today FROM book_copies WHERE DATE(acquisition_date) = CURDATE() AND deleted_at IS NULL`
     );
 
-    // Today's stats
+    // Today's stats - borrowings and returns
     const [todayStats] = await query(
         `SELECT 
       COUNT(*) as borrows_today,
-      COALESCE(SUM(borrow_fee), 0) as revenue_today
+      COALESCE(SUM(borrow_fee), 0) as borrow_revenue_today
      FROM borrow_transactions 
      WHERE DATE(borrow_date) = CURDATE()
      AND status != 'cancelled'`
     );
 
+    const [todayReturns] = await query(
+        `SELECT 
+      COUNT(*) as returns_today,
+      COALESCE(SUM(fine_amount), 0) as fine_revenue_today
+     FROM return_records 
+     WHERE DATE(return_date) = CURDATE()`
+    );
+
+    // Total revenue today = borrow fee + fines (parse as numbers)
+    const totalRevenueToday =
+        parseFloat(todayStats.borrow_revenue_today || 0) +
+        parseFloat(todayReturns.fine_revenue_today || 0);
+
     // Additional stats
     const [weeklyStats] = await query(
-        `SELECT COUNT(*) as borrows_this_week,
-            COALESCE(SUM(borrow_fee), 0) as revenue_this_week
+        `SELECT 
+      COUNT(*) as borrows_this_week,
+      COALESCE(SUM(borrow_fee), 0) as borrow_revenue_this_week
      FROM borrow_transactions 
      WHERE YEARWEEK(borrow_date) = YEARWEEK(CURDATE())
      AND status != 'cancelled'`
     );
 
+    const [weeklyReturns] = await query(
+        `SELECT 
+      COALESCE(SUM(fine_amount), 0) as fine_revenue_this_week
+     FROM return_records 
+     WHERE YEARWEEK(return_date) = YEARWEEK(CURDATE())`
+    );
+
     const [monthlyStats] = await query(
         `SELECT COUNT(*) as borrows_this_month,
-            COALESCE(SUM(borrow_fee), 0) as revenue_this_month
+            COALESCE(SUM(borrow_fee), 0) as borrow_revenue_this_month
      FROM borrow_transactions 
      WHERE MONTH(borrow_date) = MONTH(CURDATE()) 
      AND YEAR(borrow_date) = YEAR(CURDATE())
      AND status != 'cancelled'`
     );
+
+    const [monthlyReturns] = await query(
+        `SELECT 
+      COALESCE(SUM(fine_amount), 0) as fine_revenue_this_month
+     FROM return_records 
+     WHERE MONTH(return_date) = MONTH(CURDATE()) 
+     AND YEAR(return_date) = YEAR(CURDATE())`
+    );
+
+    // Calculate total revenues
+    const totalRevenueWeek =
+        (weeklyStats.borrow_revenue_this_week || 0) +
+        (weeklyReturns.fine_revenue_this_week || 0);
+    const totalRevenueMonth =
+        (monthlyStats.borrow_revenue_this_month || 0) +
+        (monthlyReturns.fine_revenue_this_month || 0);
 
     res.json({
         success: true,
@@ -235,8 +289,12 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             ...todayNewReaders,
             ...todayNewCopies,
             ...todayStats,
+            ...todayReturns,
+            revenue_today: totalRevenueToday,
             ...weeklyStats,
-            ...monthlyStats
+            revenue_this_week: totalRevenueWeek,
+            ...monthlyStats,
+            revenue_this_month: totalRevenueMonth
         }
     });
 });

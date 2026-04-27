@@ -232,7 +232,7 @@ const Books = () => {
                             <th className='table-header'>Sách</th>
                             <th className='table-header'>ISBN</th>
                             <th className='table-header'>Danh mục</th>
-                            <th className='table-header'>Giá</th>
+                            <th className='table-header'>Giá sách</th>
                             <th className='table-header'>Tồn kho</th>
                             <th className='table-header'>Trạng thái</th>
                             <th className='table-header'>Thao tác</th>

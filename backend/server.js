@@ -10,6 +10,7 @@ const readerRoutes = require('./src/routes/reader.routes');
 const bookRoutes = require('./src/routes/book.routes');
 const borrowRoutes = require('./src/routes/borrow.routes');
 const reportRoutes = require('./src/routes/report.routes');
+const settingsRoutes = require('./src/routes/settings.routes');
 const { errorHandler } = require('./src/middleware/error.middleware');
 
 const app = express();
@@ -60,6 +61,7 @@ app.use('/api/readers', readerRoutes);
 app.use('/api/books', bookRoutes);
 app.use('/api/borrowings', borrowRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // Static files for uploads
 app.use('/uploads', express.static('uploads'));

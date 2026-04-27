@@ -6,6 +6,7 @@ const {
     searchReaders,
     getReaderById,
     getReaderBorrows,
+    getReaderBorrowHistory,
     createReader,
     updateReader,
     deleteReader,
@@ -25,6 +26,7 @@ router.get('/membership-tiers', asyncHandler(getMembershipTiers));
 router.post('/:id/restore', asyncHandler(restoreReader));
 router.get('/:id', asyncHandler(getReaderById));
 router.get('/:id/borrows', asyncHandler(getReaderBorrows));
+router.get('/:id/history', asyncHandler(getReaderBorrowHistory));
 router.post('/', asyncHandler(createReader));
 router.put('/:id', asyncHandler(updateReader));
 router.delete('/:id', asyncHandler(deleteReader));

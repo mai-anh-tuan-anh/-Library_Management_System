@@ -6,7 +6,8 @@ import {
     RiBarcodeLine,
     RiEditLine,
     RiAddLine,
-    RiCloseLine
+    RiCloseLine,
+    RiDeleteBinLine
 } from 'react-icons/ri';
 import toast from 'react-hot-toast';
 import bookService from '../../services/bookService';
@@ -18,6 +19,8 @@ const BookDetail = () => {
     const [copies, setCopies] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showAddCopyModal, setShowAddCopyModal] = useState(false);
+    const [showEditCopyModal, setShowEditCopyModal] = useState(false);
+    const [editingCopy, setEditingCopy] = useState(null);
     const [copyFormData, setCopyFormData] = useState({
         barcode: '',
         location_code: '',
@@ -88,6 +91,63 @@ const BookDetail = () => {
             loadBookData();
         } catch (error) {
             toast.error('Thêm bản sao thất bại');
+        }
+    };
+
+    const openEditCopyModal = (copy) => {
+        setEditingCopy(copy);
+        setCopyFormData({
+            barcode: copy.barcode || '',
+            location_code: copy.location_code || '',
+            condition_status: copy.condition_status || 'good',
+            acquisition_date: copy.acquisition_date
+                ? new Date(copy.acquisition_date).toISOString().split('T')[0]
+                : new Date().toISOString().split('T')[0]
+        });
+        setShowEditCopyModal(true);
+    };
+
+    const closeEditCopyModal = () => {
+        setShowEditCopyModal(false);
+        setEditingCopy(null);
+        setCopyFormData({
+            barcode: '',
+            location_code: '',
+            condition_status: 'good',
+            acquisition_date: new Date().toISOString().split('T')[0]
+        });
+    };
+
+    const handleEditCopy = async (e) => {
+        e.preventDefault();
+        if (!editingCopy) return;
+
+        try {
+            await bookService.updateCopy(editingCopy.copy_id, copyFormData);
+            toast.success('Cập nhật bản sao thành công');
+            closeEditCopyModal();
+            loadBookData();
+        } catch (error) {
+            toast.error('Cập nhật bản sao thất bại');
+        }
+    };
+
+    const handleDeleteCopy = async (copyId) => {
+        if (
+            !window.confirm(
+                'Bạn có chắc chắn muốn xóa bản sao này? Hành động này không thể hoàn tác.'
+            )
+        ) {
+            return;
+        }
+        try {
+            await bookService.deleteCopy(id, copyId);
+            toast.success('Đã xóa bản sao thành công');
+            loadBookData();
+        } catch (error) {
+            toast.error(
+                error.response?.data?.message || 'Không thể xóa bản sao'
+            );
         }
     };
 
@@ -265,22 +325,43 @@ const BookDetail = () => {
                                             key={copy.copy_id}
                                             className='hover:bg-gray-50'
                                         >
-                                            <td className='table-cell font-mono'>
+                                            <td className='px-4 py-3 text-left text-xs font-medium text-gray-900'>
                                                 {copy.barcode}
                                             </td>
-                                            <td className='table-cell'>
+                                            <td className='px-4 py-3 text-left text-xs font-medium text-gray-900'>
                                                 {copy.location_code || '-'}
                                             </td>
-                                            <td className='table-cell'>
+                                            <td className='px-4 py-3 text-left text-xs font-medium text-gray-900'>
                                                 <span className='badge bg-gray-100 text-gray-800'>
                                                     {copy.condition_status}
                                                 </span>
                                             </td>
-                                            <td className='table-cell'>
+                                            <td className='px-4 py-3 text-left text-xs font-medium text-gray-900'>
                                                 {getStatusBadge(copy.status)}
                                             </td>
-                                            <td className='table-cell text-gray-500'>
+                                            <td className='px-4 py-3 text-left text-xs font-medium text-gray-500'>
                                                 {copy.acquisition_date || '-'}
+                                            </td>
+                                            <td className='px-4 py-3 text-left text-xs font-medium text-gray-900'>
+                                                <button
+                                                    onClick={() =>
+                                                        openEditCopyModal(copy)
+                                                    }
+                                                    className='p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors'
+                                                >
+                                                    <RiEditLine className='w-4 h-4' />
+                                                </button>
+                                                <button
+                                                    onClick={() =>
+                                                        handleDeleteCopy(
+                                                            copy.copy_id
+                                                        )
+                                                    }
+                                                    className='p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors'
+                                                    title='Xóa bản sao'
+                                                >
+                                                    <RiDeleteBinLine className='w-4 h-4' />
+                                                </button>
                                             </td>
                                         </tr>
                                     ))
@@ -289,8 +370,6 @@ const BookDetail = () => {
                         </table>
                     </div>
                 </div>
-
-                {/* Sidebar */}
                 <div className='space-y-6'>
                     <div className='card p-6'>
                         <h3 className='font-semibold text-gray-900 mb-4'>
@@ -470,6 +549,122 @@ const BookDetail = () => {
                                 </button>
                                 <button type='submit' className='btn-primary'>
                                     Thêm bản sao
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Edit Copy Modal */}
+            {showEditCopyModal && editingCopy && (
+                <div className='fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4'>
+                    <div className='bg-white rounded-xl shadow-xl w-full max-w-lg'>
+                        <div className='p-6 border-b border-gray-200 flex items-center justify-between'>
+                            <h2 className='text-lg font-bold text-gray-900'>
+                                Chỉnh sửa bản sao
+                            </h2>
+                            <button
+                                onClick={closeEditCopyModal}
+                                className='p-2 hover:bg-gray-100 rounded-lg'
+                            >
+                                <RiCloseLine className='w-5 h-5' />
+                            </button>
+                        </div>
+
+                        <form
+                            onSubmit={handleEditCopy}
+                            className='p-6 space-y-4'
+                        >
+                            <div>
+                                <label className='block text-sm font-medium text-gray-700 mb-2'>
+                                    Barcode{' '}
+                                    <span className='text-red-500'>*</span>
+                                </label>
+                                <input
+                                    type='text'
+                                    required
+                                    value={copyFormData.barcode}
+                                    onChange={(e) =>
+                                        setCopyFormData({
+                                            ...copyFormData,
+                                            barcode: e.target.value
+                                        })
+                                    }
+                                    className='w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent'
+                                    placeholder='Nhập barcode'
+                                />
+                            </div>
+
+                            <div>
+                                <label className='block text-sm font-medium text-gray-700 mb-2'>
+                                    Vị trí{' '}
+                                    <span className='text-red-500'>*</span>
+                                </label>
+                                <input
+                                    type='text'
+                                    required
+                                    value={copyFormData.location_code}
+                                    onChange={(e) =>
+                                        setCopyFormData({
+                                            ...copyFormData,
+                                            location_code: e.target.value
+                                        })
+                                    }
+                                    className='w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent'
+                                    placeholder='VD: A-01-02'
+                                />
+                            </div>
+
+                            <div>
+                                <label className='block text-sm font-medium text-gray-700 mb-2'>
+                                    Tình trạng
+                                </label>
+                                <select
+                                    value={copyFormData.condition_status}
+                                    onChange={(e) =>
+                                        setCopyFormData({
+                                            ...copyFormData,
+                                            condition_status: e.target.value
+                                        })
+                                    }
+                                    className='w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent'
+                                >
+                                    <option value='new'>Mới</option>
+                                    <option value='good'>Tốt</option>
+                                    <option value='fair'>Trung bình</option>
+                                    <option value='poor'>Kém</option>
+                                    <option value='damaged'>Hư hỏng</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className='block text-sm font-medium text-gray-700 mb-2'>
+                                    Ngày nhập
+                                </label>
+                                <input
+                                    type='date'
+                                    value={copyFormData.acquisition_date}
+                                    onChange={(e) =>
+                                        setCopyFormData({
+                                            ...copyFormData,
+                                            acquisition_date: e.target.value
+                                        })
+                                    }
+                                    className='w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent'
+                                />
+                            </div>
+
+                            <div className='flex justify-end gap-3 pt-4'>
+                                <button
+                                    type='button'
+                                    onClick={closeEditCopyModal}
+                                    className='px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50'
+                                >
+                                    Hủy
+                                </button>
+                                <button type='submit' className='btn-primary'>
+                                    Lưu thay đổi
                                 </button>
                             </div>
                         </form>
