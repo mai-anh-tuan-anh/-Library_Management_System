@@ -11,6 +11,7 @@ const {
     addBookCopy,
     updateBookCopy,
     deleteBookCopy,
+    restoreBookCopy,
     searchByBarcode,
     getCategories,
     getAuthors,
@@ -35,5 +36,6 @@ router.put('/:id', asyncHandler(updateBook));
 router.delete('/:id', asyncHandler(deleteBook));
 router.post('/:id/copies', asyncHandler(addBookCopy));
 router.delete('/:bookId/copies/:copyId', asyncHandler(deleteBookCopy));
+router.post('/:bookId/copies/:copyId/restore', asyncHandler(restoreBookCopy));
 
 module.exports = router;

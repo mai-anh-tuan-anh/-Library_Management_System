@@ -55,6 +55,14 @@ const bookService = {
         return response.data;
     },
 
+    // Restore soft-deleted book copy
+    restoreCopy: async (bookId, copyId) => {
+        const response = await api.post(
+            `/books/${bookId}/copies/${copyId}/restore`
+        );
+        return response.data;
+    },
+
     // Get categories
     getCategories: async () => {
         const response = await api.get('/books/categories');

@@ -102,8 +102,8 @@ const getBookCopies = asyncHandler(async (req, res) => {
         `SELECT bc.*, COALESCE(bc.location_code, sl.location_code) as location_code, sl.floor, sl.section, sl.shelf_number
      FROM book_copies bc
      LEFT JOIN shelf_locations sl ON bc.shelf_location_id = sl.location_id
-     WHERE bc.book_id = ? AND bc.deleted_at IS NULL
-     ORDER BY bc.barcode`,
+     WHERE bc.book_id = ?
+     ORDER BY bc.deleted_at IS NULL DESC, bc.barcode`,
         [id]
     );
 
@@ -453,8 +453,11 @@ const deleteBookCopy = asyncHandler(async (req, res) => {
         });
     }
 
-    // Delete the copy
-    await query(`DELETE FROM book_copies WHERE copy_id = ?`, [copyId]);
+    // Soft delete - mark as deleted instead of hard delete
+    await query(
+        `UPDATE book_copies SET deleted_at = NOW(), status = 'lost' WHERE copy_id = ?`,
+        [copyId]
+    );
 
     // Update book inventory counts
     if (copy.status === 'available') {
@@ -488,6 +491,48 @@ const deleteBookCopy = asyncHandler(async (req, res) => {
     });
 });
 
+// Restore soft-deleted book copy
+const restoreBookCopy = asyncHandler(async (req, res) => {
+    const { bookId, copyId } = req.params;
+
+    // Check if copy exists and is soft-deleted
+    const copies = await query(
+        `SELECT bc.* FROM book_copies bc
+         WHERE bc.copy_id = ? AND bc.book_id = ? AND bc.deleted_at IS NOT NULL`,
+        [copyId, bookId]
+    );
+
+    if (copies.length === 0) {
+        return res.status(404).json({
+            success: false,
+            message:
+                'Không tìm thấy bản sao sách đã bị xóa hoặc bản sao chưa bị xóa'
+        });
+    }
+
+    const copy = copies[0];
+
+    // Restore the copy
+    await query(
+        `UPDATE book_copies SET deleted_at = NULL, status = 'available' WHERE copy_id = ?`,
+        [copyId]
+    );
+
+    // Update book inventory counts
+    await query(
+        `UPDATE books 
+         SET total_copies = total_copies + 1, 
+             available_copies = available_copies + 1
+         WHERE book_id = ?`,
+        [bookId]
+    );
+
+    res.json({
+        success: true,
+        message: 'Đã khôi phục bản sao sách thành công'
+    });
+});
+
 module.exports = {
     getAllBooks,
     getBookById,
@@ -498,6 +543,7 @@ module.exports = {
     addBookCopy,
     updateBookCopy,
     deleteBookCopy,
+    restoreBookCopy,
     searchByBarcode,
     getCategories,
     getAuthors,
