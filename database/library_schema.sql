@@ -1558,50 +1558,18 @@ SELECT
     DATE_FORMAT(bt.payment_date, '%M %Y') as month_name,
     COUNT(DISTINCT bt.transaction_id) as borrow_transactions,
     SUM(bt.borrow_fee) as borrow_revenue,
-    (SELECT COALESCE(SUM(
-        calculate_late_fee(b.price, GREATEST(0, DATEDIFF(rr.return_date, DATE_ADD(bt2.borrow_date, INTERVAL bd.borrow_days DAY)))) + COALESCE(rr.damage_fee, 0)
-    ), 0)
+    (SELECT COALESCE(SUM(rr.fine_amount), 0)
      FROM return_records rr
-     JOIN borrow_details bd ON rr.detail_id = bd.detail_id
-     JOIN books b ON bd.book_id = b.book_id
-     JOIN borrow_transactions bt2 ON bd.transaction_id = bt2.transaction_id
-     WHERE DATE_FORMAT(rr.fine_payment_date, '%Y-%m') = DATE_FORMAT(bt.payment_date, '%Y-%m')
+     WHERE DATE_FORMAT(rr.return_date, '%Y-%m') = DATE_FORMAT(bt.payment_date, '%Y-%m')
      AND rr.fine_paid = TRUE) as fine_revenue,
-    SUM(bt.borrow_fee) + (SELECT COALESCE(SUM(
-        calculate_late_fee(b.price, GREATEST(0, DATEDIFF(rr.return_date, DATE_ADD(bt2.borrow_date, INTERVAL bd.borrow_days DAY)))) + COALESCE(rr.damage_fee, 0)
-    ), 0)
+    SUM(bt.borrow_fee) + (SELECT COALESCE(SUM(rr.fine_amount), 0)
                            FROM return_records rr
-                           JOIN borrow_details bd ON rr.detail_id = bd.detail_id
-                           JOIN books b ON bd.book_id = b.book_id
-                           JOIN borrow_transactions bt2 ON bd.transaction_id = bt2.transaction_id
-                           WHERE DATE_FORMAT(rr.fine_payment_date, '%Y-%m') = DATE_FORMAT(bt.payment_date, '%Y-%m')
+                           WHERE DATE_FORMAT(rr.return_date, '%Y-%m') = DATE_FORMAT(bt.payment_date, '%Y-%m')
                            AND rr.fine_paid = TRUE) as total_revenue
 FROM borrow_transactions bt
 WHERE bt.payment_status = 'paid'
 GROUP BY DATE_FORMAT(bt.payment_date, '%Y-%m'), YEAR(bt.payment_date), MONTH(bt.payment_date)
 ORDER BY year DESC, month DESC;
-
--- View: Revenue summary by day (last 7 days)
-CREATE VIEW vw_revenue_daily AS
-SELECT 
-    DATE(bt.payment_date) as revenue_date,
-    DATE_FORMAT(bt.payment_date, '%d/%m') as date_formatted,
-    DAYNAME(bt.payment_date) as day_name,
-    COUNT(DISTINCT bt.transaction_id) as borrow_transactions,
-    SUM(bt.borrow_fee) as borrow_revenue,
-    (SELECT COALESCE(SUM(rr.fine_amount), 0) 
-     FROM return_records rr 
-     WHERE DATE(rr.fine_payment_date) = DATE(bt.payment_date)
-     AND rr.fine_paid = TRUE) as fine_revenue,
-    SUM(bt.borrow_fee) + (SELECT COALESCE(SUM(rr.fine_amount), 0) 
-                           FROM return_records rr 
-                           WHERE DATE(rr.fine_payment_date) = DATE(bt.payment_date)
-                           AND rr.fine_paid = TRUE) as total_revenue
-FROM borrow_transactions bt
-WHERE bt.payment_status = 'paid'
-  AND bt.payment_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-GROUP BY DATE(bt.payment_date), DATE_FORMAT(bt.payment_date, '%d/%m'), DAYNAME(bt.payment_date)
-ORDER BY revenue_date DESC;
 
 -- View: Revenue summary by week (last 4 weeks)
 DROP VIEW IF EXISTS vw_revenue_weekly;
@@ -1614,11 +1582,11 @@ SELECT
     SUM(bt.borrow_fee) as borrow_revenue,
     (SELECT COALESCE(SUM(rr.fine_amount), 0) 
      FROM return_records rr 
-     WHERE YEARWEEK(rr.fine_payment_date, 1) = YEARWEEK(bt.payment_date, 1)
+     WHERE YEARWEEK(rr.return_date, 1) = YEARWEEK(bt.payment_date, 1)
      AND rr.fine_paid = TRUE) as fine_revenue,
     SUM(bt.borrow_fee) + (SELECT COALESCE(SUM(rr.fine_amount), 0) 
                            FROM return_records rr 
-                           WHERE YEARWEEK(rr.fine_payment_date, 1) = YEARWEEK(bt.payment_date, 1)
+                           WHERE YEARWEEK(rr.return_date, 1) = YEARWEEK(bt.payment_date, 1)
                            AND rr.fine_paid = TRUE) as total_revenue
 FROM borrow_transactions bt
 WHERE bt.payment_status = 'paid'
@@ -2245,3 +2213,45 @@ BEGIN
 END //
 
 DELIMITER ;
+DROP VIEW IF EXISTS vw_revenue_daily;
+
+CREATE VIEW vw_revenue_daily AS
+SELECT 
+    revenue_date,
+    DATE_FORMAT(revenue_date, '%d/%m') as date_formatted,
+    DAYNAME(revenue_date) as day_name,
+    SUM(borrow_transactions) as borrow_transactions,
+    SUM(borrow_revenue) as borrow_revenue,
+    SUM(fine_revenue) as fine_revenue,
+    SUM(borrow_revenue + fine_revenue) as total_revenue,
+    SUM(CASE WHEN payment_method = 'cash' THEN borrow_revenue ELSE 0 END) as cash_revenue,
+    SUM(CASE WHEN payment_method = 'banking' THEN borrow_revenue ELSE 0 END) as banking_revenue
+FROM (
+    -- Borrow fees by payment date
+    SELECT 
+        DATE(bt.payment_date) as revenue_date,
+        COUNT(DISTINCT bt.transaction_id) as borrow_transactions,
+        SUM(bt.borrow_fee) as borrow_revenue,
+        0 as fine_revenue,
+        CASE WHEN bt.payment_method_id = 1 THEN 'cash' ELSE 'banking' END as payment_method
+    FROM borrow_transactions bt
+    WHERE bt.payment_status = 'paid'
+      AND bt.payment_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+    GROUP BY DATE(bt.payment_date), bt.payment_method_id
+    
+    UNION ALL
+    
+    -- Fine revenues by return date
+    SELECT 
+        DATE(rr.return_date) as revenue_date,
+        0 as borrow_transactions,
+        0 as borrow_revenue,
+        SUM(rr.fine_amount) as fine_revenue,
+        'none' as payment_method
+    FROM return_records rr
+    WHERE rr.fine_paid = TRUE
+      AND rr.return_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+    GROUP BY DATE(rr.return_date)
+) combined
+GROUP BY revenue_date
+ORDER BY revenue_date DESC;
