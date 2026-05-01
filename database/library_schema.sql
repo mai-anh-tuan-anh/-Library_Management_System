@@ -1575,23 +1575,38 @@ ORDER BY year DESC, month DESC;
 DROP VIEW IF EXISTS vw_revenue_weekly;
 CREATE VIEW vw_revenue_weekly AS
 SELECT 
-    CONCAT('Tuần ', WEEK(bt.payment_date, 1) - WEEK(DATE_FORMAT(bt.payment_date, '%Y-%m-01'), 1) + 1) as week_label,
-    CONCAT('Tuần ', WEEK(bt.payment_date, 1) - WEEK(DATE_FORMAT(bt.payment_date, '%Y-%m-01'), 1) + 1, ' (', DATE_FORMAT(bt.payment_date, '%m/%Y'), ')') as week_formatted,
-    STR_TO_DATE(CONCAT(YEAR(bt.payment_date), '-', WEEK(bt.payment_date, 1), ' Sunday'), '%X-%V %W') as week_date,
+    CONCAT('Tuần ', WEEK(week_date, 1) - WEEK(DATE_FORMAT(week_date, '%Y-%m-01'), 1) + 1) as week_label,
+    CONCAT('Tuần ', WEEK(week_date, 1) - WEEK(DATE_FORMAT(week_date, '%Y-%m-01'), 1) + 1, ' (', DATE_FORMAT(week_date, '%m/%Y'), ')') as week_formatted,
+    week_date,
     COUNT(DISTINCT bt.transaction_id) as borrow_transactions,
     SUM(bt.borrow_fee) as borrow_revenue,
-    (SELECT COALESCE(SUM(rr.fine_amount), 0) 
-     FROM return_records rr 
-     WHERE YEARWEEK(rr.return_date, 1) = YEARWEEK(bt.payment_date, 1)
+    (SELECT COALESCE(SUM(rr.fine_amount), 0)
+     FROM return_records rr
+     WHERE YEARWEEK(rr.return_date, 1) = YEARWEEK(week_date, 1)
+     AND MONTH(rr.return_date) = MONTH(CURDATE())
+     AND YEAR(rr.return_date) = YEAR(CURDATE())
      AND rr.fine_paid = TRUE) as fine_revenue,
-    SUM(bt.borrow_fee) + (SELECT COALESCE(SUM(rr.fine_amount), 0) 
-                           FROM return_records rr 
-                           WHERE YEARWEEK(rr.return_date, 1) = YEARWEEK(bt.payment_date, 1)
+    SUM(bt.borrow_fee) + (SELECT COALESCE(SUM(rr.fine_amount), 0)
+                           FROM return_records rr
+                           WHERE YEARWEEK(rr.return_date, 1) = YEARWEEK(week_date, 1)
+                           AND MONTH(rr.return_date) = MONTH(CURDATE())
+                           AND YEAR(rr.return_date) = YEAR(CURDATE())
                            AND rr.fine_paid = TRUE) as total_revenue
-FROM borrow_transactions bt
-WHERE bt.payment_status = 'paid'
-  AND bt.payment_date >= DATE_SUB(CURDATE(), INTERVAL 4 WEEK)
-GROUP BY YEARWEEK(bt.payment_date, 1), week_label, week_formatted, week_date;
+FROM (
+    SELECT DISTINCT DATE(bt.payment_date) as week_date
+    FROM borrow_transactions bt
+    WHERE bt.payment_status = 'paid'
+      AND MONTH(bt.payment_date) = MONTH(CURDATE())
+      AND YEAR(bt.payment_date) = YEAR(CURDATE())
+    UNION
+    SELECT DISTINCT DATE(rr.return_date) as week_date
+    FROM return_records rr
+    WHERE rr.fine_paid = TRUE
+      AND MONTH(rr.return_date) = MONTH(CURDATE())
+      AND YEAR(rr.return_date) = YEAR(CURDATE())
+) dates
+LEFT JOIN borrow_transactions bt ON DATE(bt.payment_date) = dates.week_date AND bt.payment_status = 'paid'
+GROUP BY YEARWEEK(week_date, 1), week_label, week_formatted, week_date;
 
 -- View: Top borrowed books
 CREATE VIEW vw_top_books AS

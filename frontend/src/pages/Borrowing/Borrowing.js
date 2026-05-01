@@ -121,11 +121,11 @@ const Borrowing = () => {
     const openReturnModal = async (book) => {
         setSelectedBookForReturn(book);
 
-        // Use estimated_fine from backend (calculated with settings rate)
+        // Use late_fee from backend API response
         let daysLate = 0;
         let lateFee = 0;
 
-        // Use days_overdue and estimated_fine from backend if available
+        // Use days_overdue from backend if available
         if (book.days_overdue !== undefined && book.days_overdue !== null) {
             daysLate = parseInt(book.days_overdue);
         } else if (
@@ -136,7 +136,13 @@ const Borrowing = () => {
             daysLate = parseInt(book.total_days_overdue);
         }
 
-        if (book.estimated_fine !== undefined && book.estimated_fine !== null) {
+        // Prioritize late_fee from API response
+        if (book.late_fee !== undefined && book.late_fee !== null) {
+            lateFee = parseFloat(book.late_fee);
+        } else if (
+            book.estimated_fine !== undefined &&
+            book.estimated_fine !== null
+        ) {
             lateFee = parseFloat(book.estimated_fine);
         }
 
@@ -152,6 +158,14 @@ const Borrowing = () => {
                 if (bookDetails && bookDetails.days_overdue !== undefined) {
                     daysLate = parseInt(bookDetails.days_overdue);
                 }
+                // Use late_fee from API if available
+                if (
+                    bookDetails &&
+                    bookDetails.late_fee !== undefined &&
+                    lateFee === 0
+                ) {
+                    lateFee = parseFloat(bookDetails.late_fee);
+                }
             } catch (error) {
                 console.error(
                     'Failed to fetch book details for late fee calculation'
@@ -160,6 +174,7 @@ const Borrowing = () => {
         }
 
         // Calculate late fee based on daysLate using settings.late_penalty_percent (default 25%)
+        // Only calculate if not already provided by API
         if (daysLate > 0 && lateFee === 0) {
             const penaltyPercent = (settings?.late_penalty_percent || 25) / 100;
             lateFee = (book.price || 0) * penaltyPercent * daysLate;
