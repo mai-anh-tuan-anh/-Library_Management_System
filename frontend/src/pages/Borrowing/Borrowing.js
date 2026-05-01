@@ -7,7 +7,8 @@ import {
     RiCalendarLine,
     RiMoneyDollarCircleLine,
     RiUserLine,
-    RiBookLine
+    RiBookLine,
+    RiSearchLine
 } from 'react-icons/ri';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
@@ -38,6 +39,10 @@ const Borrowing = () => {
     const [transactions, setTransactions] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedTransaction, setSelectedTransaction] = useState(null);
+
+    // Search and filter states
+    const [searchKeyword, setSearchKeyword] = useState('');
+    const [borrowDateFilter, setBorrowDateFilter] = useState('');
     const [transactionBooks, setTransactionBooks] = useState([]);
     const [showDetailModal, setShowDetailModal] = useState(false);
     const [loadingDetail, setLoadingDetail] = useState(false);
@@ -386,6 +391,23 @@ const Borrowing = () => {
         );
     }
 
+    // Filter transactions
+    const filteredTransactions = transactions.filter((t) => {
+        const matchesSearch =
+            !searchKeyword ||
+            t.transaction_code
+                ?.toLowerCase()
+                .includes(searchKeyword.toLowerCase()) ||
+            t.reader_name
+                ?.toLowerCase()
+                .includes(searchKeyword.toLowerCase()) ||
+            t.reader_code?.toLowerCase().includes(searchKeyword.toLowerCase());
+        const matchesDate =
+            !borrowDateFilter ||
+            t.borrow_date?.split('T')[0] === borrowDateFilter;
+        return matchesSearch && matchesDate;
+    });
+
     return (
         <div className='space-y-6'>
             {/* Header */}
@@ -405,6 +427,37 @@ const Borrowing = () => {
                     <RiAddLine className='w-5 h-5' />
                     Tạo phiếu mượn mới
                 </button>
+            </div>
+
+            {/* Search and Filter */}
+            <div className='flex flex-col sm:flex-row gap-4'>
+                <div className='relative flex-1'>
+                    <RiSearchLine className='absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400' />
+                    <input
+                        type='text'
+                        placeholder='Tìm theo mã phiếu, tên độc giả...'
+                        value={searchKeyword}
+                        onChange={(e) => setSearchKeyword(e.target.value)}
+                        className='w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500'
+                    />
+                </div>
+                <div className='flex items-center gap-2'>
+                    <RiCalendarLine className='w-5 h-5 text-gray-400' />
+                    <input
+                        type='date'
+                        value={borrowDateFilter}
+                        onChange={(e) => setBorrowDateFilter(e.target.value)}
+                        className='px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500'
+                    />
+                    {borrowDateFilter && (
+                        <button
+                            onClick={() => setBorrowDateFilter('')}
+                            className='p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors'
+                        >
+                            ×
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Stats */}
@@ -478,17 +531,19 @@ const Borrowing = () => {
                         </tr>
                     </thead>
                     <tbody className='divide-y divide-gray-200'>
-                        {transactions.length === 0 ? (
+                        {filteredTransactions.length === 0 ? (
                             <tr>
                                 <td
                                     colSpan='8'
                                     className='px-6 py-12 text-center text-gray-500'
                                 >
-                                    Chưa có phiếu mượn nào
+                                    {searchKeyword || borrowDateFilter
+                                        ? 'Không tìm thấy phiếu mượn phù hợp'
+                                        : 'Chưa có phiếu mượn nào'}
                                 </td>
                             </tr>
                         ) : (
-                            transactions.map((transaction) => (
+                            filteredTransactions.map((transaction) => (
                                 <tr
                                     key={transaction.transaction_id}
                                     className='hover:bg-gray-50'

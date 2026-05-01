@@ -26,11 +26,11 @@ CREATE TABLE roles (
 ) ENGINE=InnoDB;
 
 CREATE TABLE users (
-    user_id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT PRIMARY KEY AUTO_INCREMENT NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     full_name VARCHAR(255) NOT NULL,
-    phone VARCHAR(20),
+    phone VARCHAR(20) NOT NULL,
     avatar_url VARCHAR(500),
     is_active BOOLEAN DEFAULT TRUE,
     last_login_at DATETIME,
@@ -42,7 +42,7 @@ CREATE TABLE users (
 ) ENGINE=InnoDB;
 
 CREATE TABLE user_roles (
-    user_role_id INT PRIMARY KEY AUTO_INCREMENT,
+    user_role_id INT PRIMARY KEY AUTO_INCREMENT NOT NULL,
     user_id INT NOT NULL,
     role_id INT NOT NULL,
     assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -2190,8 +2190,39 @@ BEGIN
     
     SET p_return_id = LAST_INSERT_ID();
     
-    -- Update book copy status
-    UPDATE book_copies SET status = 'available' WHERE copy_id = v_copy_id;
+    -- Update book copy status with condition degradation logic
+    IF p_condition_on_return = 'lost' THEN
+        -- Soft delete for lost books
+        UPDATE book_copies 
+        SET deleted_at = NOW(), status = 'lost'
+        WHERE copy_id = v_copy_id;
+    ELSE
+        -- Get current condition
+        SET @v_current_condition = (SELECT condition_status FROM book_copies WHERE copy_id = v_copy_id);
+        
+        -- Calculate new condition based on degradation rules
+        -- good: keep same, fair: -1 level, poor: -2 levels
+        SET @v_new_condition = CASE p_condition_on_return
+            WHEN 'good' THEN @v_current_condition
+            WHEN 'fair' THEN CASE @v_current_condition
+                WHEN 'new' THEN 'good'
+                WHEN 'good' THEN 'fair'
+                WHEN 'fair' THEN 'poor'
+                ELSE 'damaged'
+            END
+            WHEN 'poor' THEN CASE @v_current_condition
+                WHEN 'new' THEN 'fair'
+                WHEN 'good' THEN 'poor'
+                WHEN 'fair' THEN 'damaged'
+                ELSE 'damaged'
+            END
+            ELSE @v_current_condition
+        END;
+        
+        UPDATE book_copies 
+        SET status = 'available', condition_status = @v_new_condition
+        WHERE copy_id = v_copy_id;
+    END IF;
     
     -- Update borrow detail status
     UPDATE borrow_details SET status = 'returned' WHERE detail_id = p_detail_id;
