@@ -11,9 +11,13 @@ import {
 } from 'react-icons/ri';
 import toast from 'react-hot-toast';
 import bookService from '../../services/bookService';
+import { useAuthStore } from '../../stores/authStore';
 
 const Books = () => {
     const navigate = useNavigate();
+    const { user } = useAuthStore();
+    const isReader = user?.role === 'reader';
+
     const [books, setBooks] = useState([]);
     const [allBooks, setAllBooks] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -117,13 +121,15 @@ const Books = () => {
                         Danh sách sách và quản lý kho
                     </p>
                 </div>
-                <button
-                    onClick={() => navigate('/books/new')}
-                    className='btn-primary gap-2'
-                >
-                    <RiAddLine className='w-5 h-5' />
-                    Thêm sách mới
-                </button>
+                {!isReader && (
+                    <button
+                        onClick={() => navigate('/books/new')}
+                        className='btn-primary gap-2'
+                    >
+                        <RiAddLine className='w-5 h-5' />
+                        Thêm sách mới
+                    </button>
+                )}
             </div>
 
             {/* Search & Filter */}
@@ -320,27 +326,36 @@ const Books = () => {
                                                     )
                                                 }
                                                 className='p-2 text-blue-600 hover:bg-blue-50 rounded-lg'
+                                                title='Xem chi tiết'
                                             >
                                                 <RiEyeLine className='w-5 h-5' />
                                             </button>
-                                            <button
-                                                onClick={() =>
-                                                    handleEdit(book.book_id)
-                                                }
-                                                className='p-2 text-gray-600 hover:bg-gray-100 rounded-lg'
-                                                title='Chỉnh sửa'
-                                            >
-                                                <RiEditLine className='w-5 h-5' />
-                                            </button>
-                                            <button
-                                                onClick={() =>
-                                                    handleDelete(book.book_id)
-                                                }
-                                                className='p-2 text-red-600 hover:bg-red-50 rounded-lg'
-                                                title='Xóa'
-                                            >
-                                                <RiDeleteBinLine className='w-5 h-5' />
-                                            </button>
+                                            {!isReader && (
+                                                <>
+                                                    <button
+                                                        onClick={() =>
+                                                            handleEdit(
+                                                                book.book_id
+                                                            )
+                                                        }
+                                                        className='p-2 text-gray-600 hover:bg-gray-100 rounded-lg'
+                                                        title='Chỉnh sửa'
+                                                    >
+                                                        <RiEditLine className='w-5 h-5' />
+                                                    </button>
+                                                    <button
+                                                        onClick={() =>
+                                                            handleDelete(
+                                                                book.book_id
+                                                            )
+                                                        }
+                                                        className='p-2 text-red-600 hover:bg-red-50 rounded-lg'
+                                                        title='Xóa'
+                                                    >
+                                                        <RiDeleteBinLine className='w-5 h-5' />
+                                                    </button>
+                                                </>
+                                            )}
                                         </div>
                                     </td>
                                 </tr>

@@ -12,10 +12,14 @@ import {
 } from 'react-icons/ri';
 import toast from 'react-hot-toast';
 import bookService from '../../services/bookService';
+import { useAuthStore } from '../../stores/authStore';
 
 const BookDetail = () => {
     const { id } = useParams();
     const navigate = useNavigate();
+    const { user } = useAuthStore();
+    const isReader = user?.role === 'reader';
+
     const [book, setBook] = useState(null);
     const [copies, setCopies] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -189,13 +193,15 @@ const BookDetail = () => {
                         {book.book_code} • {book.isbn || 'Chưa có ISBN'}
                     </p>
                 </div>
-                <button
-                    onClick={() => navigate(`/books/${id}/edit`)}
-                    className='btn-secondary gap-2'
-                >
-                    <RiEditLine className='w-5 h-5' />
-                    Chỉnh sửa
-                </button>
+                {!isReader && (
+                    <button
+                        onClick={() => navigate(`/books/${id}/edit`)}
+                        className='btn-secondary gap-2'
+                    >
+                        <RiEditLine className='w-5 h-5' />
+                        Chỉnh sửa
+                    </button>
+                )}
             </div>
 
             <div className='grid grid-cols-1 lg:grid-cols-3 gap-6'>
@@ -301,13 +307,15 @@ const BookDetail = () => {
                             <h3 className='text-lg font-semibold text-gray-900'>
                                 Danh sách bản sao ({copies.length})
                             </h3>
-                            <button
-                                onClick={() => setShowAddCopyModal(true)}
-                                className='btn-primary gap-2 text-sm'
-                            >
-                                <RiAddLine className='w-4 h-4' />
-                                Thêm bản sao
-                            </button>
+                            {!isReader && (
+                                <button
+                                    onClick={() => setShowAddCopyModal(true)}
+                                    className='btn-primary gap-2 text-sm'
+                                >
+                                    <RiAddLine className='w-4 h-4' />
+                                    Thêm bản sao
+                                </button>
+                            )}
                         </div>
                         <table className='w-full'>
                             <thead className='bg-gray-50'>
@@ -317,13 +325,18 @@ const BookDetail = () => {
                                     <th className='table-header'>Tình trạng</th>
                                     <th className='table-header'>Trạng thái</th>
                                     <th className='table-header'>Ngày nhập</th>
+                                    {!isReader && (
+                                        <th className='table-header'>
+                                            Thao tác
+                                        </th>
+                                    )}
                                 </tr>
                             </thead>
                             <tbody className='divide-y divide-gray-200'>
                                 {copies.length === 0 ? (
                                     <tr>
                                         <td
-                                            colSpan='5'
+                                            colSpan={isReader ? 5 : 6}
                                             className='px-6 py-8 text-center text-gray-500'
                                         >
                                             Chưa có bản sao nào
@@ -358,43 +371,44 @@ const BookDetail = () => {
                                                 {copy.acquisition_date || '-'}
                                             </td>
                                             <td className='px-4 py-3 text-left text-xs font-medium text-gray-900'>
-                                                {copy.deleted_at ? (
-                                                    <button
-                                                        onClick={() =>
-                                                            handleRestoreCopy(
-                                                                copy.copy_id
-                                                            )
-                                                        }
-                                                        className='p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors'
-                                                        title='Khôi phục bản sao'
-                                                    >
-                                                        <RiRefreshLine className='w-4 h-4' />
-                                                    </button>
-                                                ) : (
-                                                    <>
+                                                {!isReader &&
+                                                    (copy.deleted_at ? (
                                                         <button
                                                             onClick={() =>
-                                                                openEditCopyModal(
-                                                                    copy
-                                                                )
-                                                            }
-                                                            className='p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors'
-                                                        >
-                                                            <RiEditLine className='w-4 h-4' />
-                                                        </button>
-                                                        <button
-                                                            onClick={() =>
-                                                                handleDeleteCopy(
+                                                                handleRestoreCopy(
                                                                     copy.copy_id
                                                                 )
                                                             }
-                                                            className='p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors'
-                                                            title='Xóa bản sao'
+                                                            className='p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors'
+                                                            title='Khôi phục bản sao'
                                                         >
-                                                            <RiDeleteBinLine className='w-4 h-4' />
+                                                            <RiRefreshLine className='w-4 h-4' />
                                                         </button>
-                                                    </>
-                                                )}
+                                                    ) : (
+                                                        <>
+                                                            <button
+                                                                onClick={() =>
+                                                                    openEditCopyModal(
+                                                                        copy
+                                                                    )
+                                                                }
+                                                                className='p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors'
+                                                            >
+                                                                <RiEditLine className='w-4 h-4' />
+                                                            </button>
+                                                            <button
+                                                                onClick={() =>
+                                                                    handleDeleteCopy(
+                                                                        copy.copy_id
+                                                                    )
+                                                                }
+                                                                className='p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors'
+                                                                title='Xóa bản sao'
+                                                            >
+                                                                <RiDeleteBinLine className='w-4 h-4' />
+                                                            </button>
+                                                        </>
+                                                    ))}
                                             </td>
                                         </tr>
                                     ))

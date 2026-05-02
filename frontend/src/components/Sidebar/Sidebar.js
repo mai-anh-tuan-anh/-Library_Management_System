@@ -14,23 +14,62 @@ import {
 } from 'react-icons/ri';
 import { useAuthStore } from '../../stores/authStore';
 
-const menuItems = [
-    { path: '/dashboard', label: 'Tổng quan', icon: RiDashboardLine },
-    { path: '/readers', label: 'Quản lý Độc giả', icon: RiUserLine },
-    { path: '/books', label: 'Quản lý Sách', icon: RiBookLine },
-    { path: '/borrowing', label: 'Mượn sách / Trả sách', icon: RiExchangeLine },
+const allMenuItems = [
+    {
+        path: '/dashboard',
+        label: 'Tổng quan',
+        icon: RiDashboardLine,
+        roles: ['admin', 'librarian', 'staff', 'accountant']
+    },
+    {
+        path: '/readers',
+        label: 'Quản lý Độc giả',
+        icon: RiUserLine,
+        roles: ['admin', 'librarian', 'staff']
+    },
+    {
+        path: '/books',
+        label: 'Quản lý Sách',
+        icon: RiBookLine,
+        roles: ['admin', 'librarian', 'staff', 'reader']
+    },
+    {
+        path: '/borrowing',
+        label: 'Mượn sách / Trả sách',
+        icon: RiExchangeLine,
+        roles: ['admin', 'librarian', 'staff']
+    },
     {
         path: '/due-alerts',
         label: 'Cảnh báo hạn trả',
-        icon: RiAlarmWarningLine
+        icon: RiAlarmWarningLine,
+        roles: ['admin', 'librarian', 'staff']
     },
-    { path: '/reports', label: 'Báo cáo', icon: RiBarChartLine },
-    { path: '/settings', label: 'Cài đặt', icon: RiSettingsLine }
+    {
+        path: '/reports',
+        label: 'Báo cáo',
+        icon: RiBarChartLine,
+        roles: ['admin', 'accountant']
+    },
+    {
+        path: '/settings',
+        label: 'Cài đặt',
+        icon: RiSettingsLine,
+        roles: ['admin']
+    }
 ];
 
 const Sidebar = ({ isOpen, setIsOpen }) => {
     const location = useLocation();
     const { logout, user } = useAuthStore();
+
+    // Get user's role from user object
+    const userRole = user?.role || 'reader';
+
+    // Filter menu items based on role
+    const menuItems = allMenuItems.filter((item) =>
+        item.roles.includes(userRole)
+    );
 
     const handleLogout = () => {
         logout();

@@ -4,7 +4,8 @@ import {
     RiDownloadLine,
     RiCalendarLine,
     RiBookLine,
-    RiUserLine
+    RiUserLine,
+    RiVipCrownLine
 } from 'react-icons/ri';
 import {
     Chart as ChartJS,
@@ -31,6 +32,19 @@ ChartJS.register(
     Tooltip,
     Legend
 );
+
+// Helper function for tier badge colors
+const getTierBg = (tier) => {
+    const tierColors = {
+        Đồng: 'bg-amber-100 text-amber-800',
+        Bạc: 'bg-slate-100 text-slate-800',
+        Vàng: 'bg-yellow-100 text-yellow-800',
+        'Bạch Kim': 'bg-cyan-100 text-cyan-800',
+        'Kim Cương': 'bg-blue-100 text-blue-800',
+        'Huyền Thoại': 'bg-purple-100 text-purple-800'
+    };
+    return tierColors[tier] || 'bg-gray-100 text-gray-800';
+};
 
 const Reports = () => {
     const [activeTab, setActiveTab] = useState('revenue');
@@ -375,7 +389,9 @@ const Reports = () => {
                                 <th className='table-header'>Độc giả</th>
                                 <th className='table-header'>Cấp độ</th>
                                 <th className='table-header'>Lượt mượn</th>
-                                <th className='table-header'>Sách đã đọc</th>
+                                <th className='table-header'>
+                                    Đầu Sách đã đọc
+                                </th>
                                 <th className='table-header'>Tổng phí</th>
                             </tr>
                         </thead>
@@ -411,8 +427,11 @@ const Reports = () => {
                                         </div>
                                     </td>
                                     <td className='table-cell'>
-                                        <span className='badge bg-primary-100 text-primary-800'>
-                                            {reader.tier_name}
+                                        <span
+                                            className={`badge ${getTierBg(reader.member_level)}`}
+                                        >
+                                            <RiVipCrownLine className='w-3 h-3 mr-1' />
+                                            {reader.member_level}
                                         </span>
                                     </td>
                                     <td className='table-cell'>

@@ -2,7 +2,7 @@
 
 Tai lieu nay giai thich website thu vien theo goc nhin fullstack senior, de nguoi moi co the lan theo tung lop `frontend -> backend -> database`.
 
-## 1) Tong quan cau truc thu muc
+## 1 Tong quan cau truc thu muc
 
 ```text
 national_library/
@@ -33,26 +33,26 @@ Ngoai ra con mot so file tai lieu, PDF, docx khong anh huong den runtime cua he 
 
 ---
 
-## 2) Frontend - React app
+## 2 Frontend - React app
 
 ### 2.1 Entry va dinh tuyen
 
 - `frontend/src/App.js`:
-  - Quan ly route bang `react-router-dom`.
-  - Route public: `/login`.
-  - Route private: dashboard, readers, books, borrowing, returns, reports, settings.
-  - `ProtectedRoute` kiem tra `isAuthenticated` tu Zustand store.
+    - Quan ly route bang `react-router-dom`.
+    - Route public: `/login`.
+    - Route private: dashboard, readers, books, borrowing, returns, reports, settings.
+    - `ProtectedRoute` kiem tra `isAuthenticated` tu Zustand store.
 
 ### 2.2 Quan ly dang nhap
 
 - `frontend/src/stores/authStore.js`:
-  - `login(email, password)` goi `POST /auth/login`.
-  - Luu `token` vao `localStorage`.
-  - Persist `user` va `isAuthenticated`.
+    - `login(email, password)` goi `POST /auth/login`.
+    - Luu `token` vao `localStorage`.
+    - Persist `user` va `isAuthenticated`.
 - `frontend/src/services/api.js`:
-  - Tao axios instance (`baseURL` la `/api`).
-  - Request interceptor: gan `Authorization: Bearer <token>`.
-  - Response interceptor: xu ly 401/403/404/500, tu dong ve `/login` neu het han token.
+    - Tao axios instance (`baseURL` la `/api`).
+    - Request interceptor: gan `Authorization: Bearer <token>`.
+    - Response interceptor: xu ly 401/403/404/500, tu dong ve `/login` neu het han token.
 
 ### 2.3 Cac nhom page chinh
 
@@ -75,6 +75,7 @@ Ngoai ra con mot so file tai lieu, PDF, docx khong anh huong den runtime cua he 
 - `settingsService.js` -> `/api/settings`
 
 Pattern chung:
+
 1. Page goi service.
 2. Service goi axios (`api.js`).
 3. Token duoc gan tu dong.
@@ -82,7 +83,7 @@ Pattern chung:
 
 ---
 
-## 3) Backend - Express API
+## 3 Backend - Express API
 
 ### 3.1 server.js (xuong song toan he thong)
 
@@ -93,33 +94,33 @@ Pattern chung:
 - Parse body: `express.json`.
 - Health endpoint: `GET /api/health`.
 - Mount route:
-  - `/api/auth`
-  - `/api/readers`
-  - `/api/books`
-  - `/api/borrowings`
-  - `/api/reports`
-  - `/api/settings`
+    - `/api/auth`
+    - `/api/readers`
+    - `/api/books`
+    - `/api/borrowings`
+    - `/api/reports`
+    - `/api/settings`
 - 404 handler + global `errorHandler`.
 
 ### 3.2 database layer
 
 - `backend/src/config/database.js`:
-  - Tao `mysql2` pool.
-  - `query(sql, params)` cho lenh SQL thong thuong.
-  - `transaction(callback)` de commit/rollback.
-  - `callProcedure(name, params, outParamNames)` de goi stored procedure, ho tro OUT params.
+    - Tao `mysql2` pool.
+    - `query(sql, params)` cho lenh SQL thong thuong.
+    - `transaction(callback)` de commit/rollback.
+    - `callProcedure(name, params, outParamNames)` de goi stored procedure, ho tro OUT params.
 
 Day la lop ket noi trung tam giua controller va MySQL.
 
 ### 3.3 middleware
 
 - `auth.middleware.js`:
-  - Doc JWT tu `Authorization`.
-  - Verify token.
-  - Query DB lay `req.user`.
+    - Doc JWT tu `Authorization`.
+    - Verify token.
+    - Query DB lay `req.user`.
 - `error.middleware.js`:
-  - Bat loi MySQL, JWT, Validation.
-  - `asyncHandler(fn)` tranh lap try/catch o moi controller.
+    - Bat loi MySQL, JWT, Validation.
+    - `asyncHandler(fn)` tranh lap try/catch o moi controller.
 
 ### 3.4 routes -> controller mapping
 
@@ -134,19 +135,19 @@ Phan lon route (tru auth) deu bat buoc `authenticate`.
 
 ---
 
-## 4) Chi tiet API va luong du lieu
+## 4 Chi tiet API va luong du lieu
 
 ## 4.1 Auth API
 
 - `POST /api/auth/login`
-  - Controller query bang `email`.
-  - So sanh `bcrypt.compare(password, password_hash)`.
-  - Tra JWT + user info.
+    - Controller query bang `email`.
+    - So sanh `bcrypt.compare(password, password_hash)`.
+    - Tra JWT + user info.
 - `GET /api/auth/me`
-  - Lay role tu `roles` + `user_roles`.
+    - Lay role tu `roles` + `user_roles`.
 - `POST /api/auth/change-password`
-  - Kiem tra mat khau cu.
-  - Hash mat khau moi.
+    - Kiem tra mat khau cu.
+    - Hash mat khau moi.
 
 ## 4.2 Reader API
 
@@ -158,6 +159,7 @@ Phan lon route (tru auth) deu bat buoc `authenticate`.
 - `POST /:id/change-tier`: ghi `membership_history` va cap nhat tier.
 
 Kieu lay du lieu:
+
 - vua query SQL truc tiep,
 - vua goi procedure (neu can business logic phuc tap o DB).
 
@@ -175,18 +177,22 @@ Kieu lay du lieu:
 ## 4.4 Borrowing API (module nghiep vu kho nhat)
 
 ### Luong tao phieu muon
+
 1. `POST /api/borrowings` -> goi `sp_process_borrowing` tao header.
 2. `POST /api/borrowings/:id/books` -> goi `sp_add_book_to_transaction`.
 3. `POST /api/borrowings/:id/finalize` -> goi `sp_finalize_borrowing`.
 
 ### Luong huy phieu
+
 - `POST /api/borrowings/:id/cancel` -> `sp_cancel_borrowing`.
 
 ### Luong tra sach
+
 - `POST /api/borrowings/returns` -> goi `sp_process_return` (legacy).
 - `POST /api/borrowings/returns/barcode` -> goi `sp_process_return_by_barcode` (flow moi).
 
 ### Canh bao
+
 - `GET /api/borrowings/due-alerts`
 - `GET /api/borrowings/overdue`
 - `POST /api/borrowings/:id/remind`
@@ -205,27 +211,28 @@ Kieu lay du lieu:
 
 ---
 
-## 5) Database duoc su dung nhu the nao trong backend
+## 5 Database duoc su dung nhu the nao trong backend
 
 Co 3 kieu truy cap du lieu:
 
 1. **Query truc tiep**
-   - CRUD co ban.
-   - Example: `SELECT * FROM readers ...`, `UPDATE books ...`.
+    - CRUD co ban.
+    - Example: `SELECT * FROM readers ...`, `UPDATE books ...`.
 2. **Stored Procedure**
-   - Xu ly giao dich co nhieu buoc va can rollback.
-   - Example: `sp_process_borrowing`, `sp_process_return`.
+    - Xu ly giao dich co nhieu buoc va can rollback.
+    - Example: `sp_process_borrowing`, `sp_process_return`.
 3. **View**
-   - Bao cao tong hop san o DB de API chi viec doc.
-   - Example: `vw_revenue_daily`, `vw_inventory_status`.
+    - Bao cao tong hop san o DB de API chi viec doc.
+    - Example: `vw_revenue_daily`, `vw_inventory_status`.
 
 Khi nao can transaction:
+
 - Tao phieu muon, tra sach, huy phieu, thanh toan phat.
 - Controller goi procedure hoac dung helper `transaction`.
 
 ---
 
-## 6) Luong ket noi dau-cuoi (end-to-end)
+## 6 Luong ket noi dau-cuoi (end-to-end)
 
 Vi du luong "tao phieu muon":
 
@@ -242,7 +249,7 @@ Do la cach he thong ket noi front-back-db rat ro rang.
 
 ---
 
-## 7) Cac diem can luu y cho nguoi moi
+## 7 Cac diem can luu y cho nguoi moi
 
 - Du an dung song song logic o backend JS va DB SQL, nen debug can theo ca 2 phia.
 - SQL schema co mot so object bi define lai o cuoi file (`sp_process_return`, `vw_revenue_daily`, `vw_revenue_weekly`), object cuoi cung moi la object co hieu luc.
@@ -251,7 +258,7 @@ Do la cach he thong ket noi front-back-db rat ro rang.
 
 ---
 
-## 8) Goi y hoc nhanh cho ban
+## 8 Goi y hoc nhanh cho ban
 
 Neu ban moi:
 

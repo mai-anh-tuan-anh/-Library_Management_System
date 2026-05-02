@@ -143,8 +143,70 @@ const changePassword = asyncHandler(async (req, res) => {
     });
 });
 
+// Register new reader account
+const registerReader = asyncHandler(async (req, res) => {
+    const { email, password, full_name } = req.body;
+
+    if (!email || !password || !full_name) {
+        return res.status(400).json({
+            success: false,
+            message: 'Email, password and full name are required'
+        });
+    }
+
+    // Check if email already exists
+    const [existingUser] = await query(
+        'SELECT user_id FROM users WHERE email = ? AND deleted_at IS NULL',
+        [email]
+    );
+
+    if (existingUser) {
+        return res.status(400).json({
+            success: false,
+            message: 'Email đã được sử dụng'
+        });
+    }
+
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password, salt);
+
+    // Insert user
+    const result = await query(
+        `INSERT INTO users (email, password_hash, full_name, phone, is_active, created_at)
+         VALUES (?, ?, ?, '', TRUE, NOW())`,
+        [email, passwordHash, full_name]
+    );
+
+    const userId = result.insertId;
+
+    // Get reader role_id
+    const [readerRole] = await query(
+        "SELECT role_id FROM roles WHERE role_name = 'reader'"
+    );
+
+    if (readerRole) {
+        // Assign reader role
+        await query('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)', [
+            userId,
+            readerRole.role_id
+        ]);
+    }
+
+    res.status(201).json({
+        success: true,
+        message: 'Đăng ký tài khoản thành công',
+        data: {
+            user_id: userId,
+            email,
+            full_name
+        }
+    });
+});
+
 module.exports = {
     login,
     getMe,
-    changePassword
+    changePassword,
+    registerReader
 };

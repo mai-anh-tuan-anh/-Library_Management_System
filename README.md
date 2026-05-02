@@ -19,6 +19,7 @@ Website quản lý thư viện theo mô hình fullstack (`React + Node.js + MySQ
 ## Tech stack
 
 ### Frontend
+
 - `React 18`
 - `React Router v6`
 - `Axios`
@@ -28,6 +29,7 @@ Website quản lý thư viện theo mô hình fullstack (`React + Node.js + MySQ
 - `react-hot-toast`, `react-icons`
 
 ### Backend
+
 - `Node.js` + `Express`
 - `mysql2/promise` (pool + transaction + stored procedure caller)
 - `JWT` (`jsonwebtoken`)
@@ -35,6 +37,7 @@ Website quản lý thư viện theo mô hình fullstack (`React + Node.js + MySQ
 - `helmet`, `cors`, `express-rate-limit`, `morgan`
 
 ### Database
+
 - `MySQL`
 - `26 bảng` chính (quản trị user, bạn đọc, kho sách, giao dịch mượn/trả, notification, system)
 - Functions, triggers, stored procedures, views, events
@@ -48,7 +51,7 @@ Website quản lý thư viện theo mô hình fullstack (`React + Node.js + MySQ
 
 ## Cách sử dụng website
 
-### 1) Chuẩn bị database
+### 1 Chuẩn bị database
 
 ```bash
 mysql -u root -p < database/library_schema.sql
@@ -56,7 +59,7 @@ mysql -u root -p < database/library_schema.sql
 
 Schema sẽ tự tạo DB `national_library`, bảng, dữ liệu mẫu, procedure/function/trigger/view/event.
 
-### 2) Chạy backend
+### 2 Chạy backend
 
 ```bash
 cd backend
@@ -68,7 +71,7 @@ npm run dev
 API mặc định: `http://localhost:5000`  
 Health check: `GET /api/health`
 
-### 3) Chạy frontend
+### 3 Chạy frontend
 
 ```bash
 cd frontend
@@ -78,17 +81,17 @@ npm start
 
 Web app mặc định: `http://localhost:3000`
 
-### 4) Đăng nhập demo
+### 4 Đăng nhập demo
 
 - Email: `admin@library.vn`
 - Password: `admin123`
 
-### 5) Luồng dùng cơ bản
+### 5 Luồng dùng cơ bản
 
 - Vào `Độc giả` để tạo/chỉnh sửa hồ sơ bạn đọc.
 - Vào `Sách` để tạo đầu sách và thêm bản sao (`barcode`).
 - Vào `Mượn sách / Trả sách` để tạo phiếu mượn 3 bước: chọn độc giả -> quét barcode -> finalize.
-- Vào `Trả sách` hoặc modal trả sách trong trang mượn để xử lý trả và phí phạt.
+- Vào `Mượn sách / Trả sách` hoặc modal trả sách trong trang mượn để xử lý trả và phí phạt.
 - Vào `Báo cáo` để xem doanh thu + top books + top readers.
 
 ## Demo
@@ -100,6 +103,7 @@ Hiện tại dự án được thiết kế theo demo local:
 - Health endpoint: `http://localhost:5000/api/health`
 
 Bạn có thể quay màn hình nhanh theo kịch bản demo sau:
+
 1. Login bằng tài khoản admin.
 2. Tạo một độc giả mới.
 3. Tạo phiếu mượn mới bằng barcode.

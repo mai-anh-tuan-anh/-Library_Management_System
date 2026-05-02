@@ -2,7 +2,7 @@
 
 Tai lieu nay phan tich schema theo goc nhin thiet ke he thong va van hanh du lieu.
 
-## 1) Tong quan nhanh
+## 1 Tong quan nhanh
 
 `database/library_schema.sql` dang theo huong "DB la noi giu business rules quan trong", gom:
 
@@ -17,7 +17,7 @@ File co seed data, sample data, va mot so object duoc tao lai o cuoi file (can h
 
 ---
 
-## 2) Nhom bang va vai tro
+## 2 Nhom bang va vai tro
 
 ## 2.1 User management
 
@@ -75,7 +75,7 @@ Muc tieu: cai dat he thong va truy vet thay doi.
 
 ---
 
-## 3) Relationship quan trong
+## 3 Relationship quan trong
 
 - `readers.tier_id` -> `membership_tiers.tier_id`
 - `borrow_transactions.reader_id` -> `readers.reader_id`
@@ -93,7 +93,7 @@ Flow nghiep vu cot loi:
 
 ---
 
-## 4) Functions - ly do va cach dung
+## 4 Functions - ly do va cach dung
 
 ## 4.1 `calculate_late_fee(book_price, days_late)`
 
@@ -130,7 +130,7 @@ Y nghia senior: business rate co the doi ma khong sua code backend.
 
 ---
 
-## 5) Triggers - tu dong hoa nhung gi
+## 5 Triggers - tu dong hoa nhung gi
 
 ## 5.1 Nhom inventory
 
@@ -158,23 +158,26 @@ Muc dich: ghi audit va tao lich nhac han ngay luc phat sinh giao dich.
 
 ---
 
-## 6) Stored procedures (phan quan trong nhat)
+## 6 Stored procedures (phan quan trong nhat)
 
 ## 6.1 Borrowing pipeline
 
 ### `sp_process_borrowing`
+
 - Validate reader.
 - Tao transaction header.
 - Tra `transaction_id` qua OUT param.
 - Co `START TRANSACTION` + `COMMIT/ROLLBACK`.
 
 ### `sp_add_book_to_transaction`
+
 - Kiem tra copy co `available`.
 - Kiem tra so ngay muon <= gioi han tier.
 - Them `borrow_details`.
 - Doi `book_copies.status` -> `borrowed`.
 
 ### `sp_finalize_borrowing`
+
 - Tong hop so sach, tong phi.
 - Chot `expected_return_date`.
 - Chuyen `payment_status` sang `paid`.
@@ -182,6 +185,7 @@ Muc dich: ghi audit va tao lich nhac han ngay luc phat sinh giao dich.
 ## 6.2 Return pipeline
 
 ### `sp_process_return_by_barcode`
+
 - Tim ban sao dang muon qua barcode.
 - Tinh `days_late`, `late_fee`, `damage_fee`.
 - Insert `return_records`.
@@ -189,6 +193,7 @@ Muc dich: ghi audit va tao lich nhac han ngay luc phat sinh giao dich.
 - Neu tra het: mark transaction completed.
 
 ### `sp_process_return` (duoc define lai o cuoi file)
+
 - Co 2 phien ban trong file.
 - Phien ban cuoi (sau dong `DROP PROCEDURE IF EXISTS`) la ban hieu luc.
 - Ho tro tham so `p_returned_by`, xu ly dieu kien mat sach/hu hong.
@@ -204,7 +209,7 @@ Muc dich: ghi audit va tao lich nhac han ngay luc phat sinh giao dich.
 
 ---
 
-## 7) Transactions - vi sao can va dang dung nhu nao
+## 7 Transactions - vi sao can va dang dung nhu nao
 
 Trong SQL, transaction duoc dung de dam bao tinh nhat quan:
 
@@ -214,12 +219,13 @@ Trong SQL, transaction duoc dung de dam bao tinh nhat quan:
 - Huy phieu: khoi phuc copy va cap nhat transaction atomically.
 
 Y nghia senior:
+
 - Tranh "dirty state" khi app bi ngat giua chung.
 - Tot cho du lieu tai chinh (phi muon/phat).
 
 ---
 
-## 8) Views - tach doc bao cao khoi query runtime
+## 8 Views - tach doc bao cao khoi query runtime
 
 Views chinh:
 
@@ -235,17 +241,19 @@ Views chinh:
 - `vw_book_alerts`
 
 Loi ich:
+
 - Backend report chi can `SELECT * FROM view`.
 - Cong thuc tong hop tap trung mot cho.
 - UI chart khong can phai join phuc tap.
 
 Luu y quan trong:
+
 - `vw_revenue_weekly` va `vw_revenue_daily` duoc tao lai o cuoi file.
 - Ban tao sau cung se ghi de ban truoc.
 
 ---
 
-## 9) Events - tac vu nen dinh ky
+## 9 Events - tac vu nen dinh ky
 
 ## 9.1 `evt_daily_due_check`
 
@@ -259,12 +267,13 @@ Luu y quan trong:
 - Don dep activity logs qua han.
 
 Y nghia senior:
+
 - Day processing "maintenance" ra khoi web request.
 - Giam tai API, giu DB gon theo thoi gian.
 
 ---
 
-## 10) Seed data va kha nang demo
+## 10 Seed data va kha nang demo
 
 Schema co seed:
 
@@ -294,7 +303,7 @@ Nen sau khi import la co the login va demo ngay.
 
 ---
 
-## 12) Cach su dung schema dung chuan khi phat trien tiep
+## 12 Cach su dung schema dung chuan khi phat trien tiep
 
 1. Khong sua truc tiep production SQL bang tay.
 2. Tach migration theo version (`V1__init.sql`, `V2__fix_return_proc.sql`, ...).

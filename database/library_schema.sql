@@ -489,7 +489,8 @@ INSERT INTO roles (role_name, description) VALUES
 ('admin', 'System administrator with full access'),
 ('librarian', 'Library staff who can manage books and borrowing'),
 ('staff', 'General staff with limited access'),
-('accountant', 'Staff who can view financial reports');
+('accountant', 'Staff who can view financial reports'),
+('reader', 'Library members who can view books availability');
 
 -- Insert membership tiers
 INSERT INTO membership_tiers (tier_name, tier_code, badge_icon, badge_color, max_books, max_borrow_days, late_threshold, description) VALUES
@@ -1575,38 +1576,42 @@ ORDER BY year DESC, month DESC;
 DROP VIEW IF EXISTS vw_revenue_weekly;
 CREATE VIEW vw_revenue_weekly AS
 SELECT 
-    CONCAT('Tuần ', WEEK(week_date, 1) - WEEK(DATE_FORMAT(week_date, '%Y-%m-01'), 1) + 1) as week_label,
-    CONCAT('Tuần ', WEEK(week_date, 1) - WEEK(DATE_FORMAT(week_date, '%Y-%m-01'), 1) + 1, ' (', DATE_FORMAT(week_date, '%m/%Y'), ')') as week_formatted,
-    week_date,
-    COUNT(DISTINCT bt.transaction_id) as borrow_transactions,
-    SUM(bt.borrow_fee) as borrow_revenue,
-    (SELECT COALESCE(SUM(rr.fine_amount), 0)
-     FROM return_records rr
-     WHERE YEARWEEK(rr.return_date, 1) = YEARWEEK(week_date, 1)
-     AND MONTH(rr.return_date) = MONTH(CURDATE())
-     AND YEAR(rr.return_date) = YEAR(CURDATE())
-     AND rr.fine_paid = TRUE) as fine_revenue,
-    SUM(bt.borrow_fee) + (SELECT COALESCE(SUM(rr.fine_amount), 0)
-                           FROM return_records rr
-                           WHERE YEARWEEK(rr.return_date, 1) = YEARWEEK(week_date, 1)
-                           AND MONTH(rr.return_date) = MONTH(CURDATE())
-                           AND YEAR(rr.return_date) = YEAR(CURDATE())
-                           AND rr.fine_paid = TRUE) as total_revenue
+    CONCAT('Tuần ', w.week_num) as week_label,
+    CONCAT('Tuần ', w.week_num, ' (', DATE_FORMAT(w.week_start, '%m/%Y'), ')') as week_formatted,
+    w.week_start as week_date,
+    COALESCE(br.borrow_count, 0) as borrow_transactions,
+    COALESCE(br.borrow_fee_total, 0) as borrow_revenue,
+    COALESCE(fn.fine_total, 0) as fine_revenue,
+    COALESCE(br.borrow_fee_total, 0) + COALESCE(fn.fine_total, 0) as total_revenue
 FROM (
-    SELECT DISTINCT DATE(bt.payment_date) as week_date
-    FROM borrow_transactions bt
-    WHERE bt.payment_status = 'paid'
-      AND MONTH(bt.payment_date) = MONTH(CURDATE())
-      AND YEAR(bt.payment_date) = YEAR(CURDATE())
-    UNION
-    SELECT DISTINCT DATE(rr.return_date) as week_date
-    FROM return_records rr
-    WHERE rr.fine_paid = TRUE
-      AND MONTH(rr.return_date) = MONTH(CURDATE())
-      AND YEAR(rr.return_date) = YEAR(CURDATE())
-) dates
-LEFT JOIN borrow_transactions bt ON DATE(bt.payment_date) = dates.week_date AND bt.payment_status = 'paid'
-GROUP BY YEARWEEK(week_date, 1), week_label, week_formatted, week_date;
+    SELECT 0 as week_num, 1 as week_start_day, 7 as week_end_day, DATE_FORMAT(CURDATE(), '%Y-%m-01') as week_start
+    UNION SELECT 1, 8, 14, DATE_FORMAT(CURDATE(), '%Y-%m-01') + INTERVAL 7 DAY
+    UNION SELECT 2, 15, 21, DATE_FORMAT(CURDATE(), '%Y-%m-01') + INTERVAL 14 DAY
+    UNION SELECT 3, 22, 28, DATE_FORMAT(CURDATE(), '%Y-%m-01') + INTERVAL 21 DAY
+    UNION SELECT 4, 29, 31, DATE_FORMAT(CURDATE(), '%Y-%m-01') + INTERVAL 28 DAY
+) 
+LEFT JOIN (
+    SELECT 
+        FLOOR((DAY(payment_date) - 1) / 7) + 1 as week_num,
+        COUNT(*) as borrow_count,
+        SUM(borrow_fee) as borrow_fee_total
+    FROM borrow_transactions
+    WHERE payment_status = 'paid'
+      AND MONTH(payment_date) = MONTH(CURDATE())
+      AND YEAR(payment_date) = YEAR(CURDATE())
+    GROUP BY FLOOR((DAY(payment_date) - 1) / 7) + 1
+) br ON br.week_num = w.week_num
+LEFT JOIN (
+    SELECT 
+        FLOOR((DAY(return_date) - 1) / 7) + 1 as week_num,
+        SUM(fine_amount) as fine_total
+    FROM return_records
+    WHERE fine_paid = TRUE
+      AND MONTH(return_date) = MONTH(CURDATE())
+      AND YEAR(return_date) = YEAR(CURDATE())
+    GROUP BY FLOOR((DAY(return_date) - 1) / 7) + 1
+) fn ON fn.week_num = w.week_num
+WHERE w.week_num <= CEIL(DAY(LAST_DAY(CURDATE())) / 7);
 
 -- View: Top borrowed books
 CREATE VIEW vw_top_books AS

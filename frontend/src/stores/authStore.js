@@ -19,8 +19,18 @@ export const useAuthStore = create(
                     });
                     const { user, token } = response.data.data;
 
+                    // Extract role from user.roles array
+                    const userRole =
+                        user.roles && user.roles.length > 0
+                            ? user.roles[0]
+                            : 'reader';
+
                     localStorage.setItem('token', token);
-                    set({ user, isAuthenticated: true, isLoading: false });
+                    set({
+                        user: { ...user, role: userRole },
+                        isAuthenticated: true,
+                        isLoading: false
+                    });
                     return true;
                 } catch (error) {
                     set({
