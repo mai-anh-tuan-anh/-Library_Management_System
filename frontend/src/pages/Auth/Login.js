@@ -5,8 +5,7 @@ import {
     RiLockLine,
     RiEyeLine,
     RiEyeOffLine,
-    RiBookLine,
-    RiUserAddLine
+    RiBookLine
 } from 'react-icons/ri';
 import { useAuthStore } from '../../stores/authStore';
 import authService from '../../services/authService';
@@ -14,13 +13,12 @@ import toast from 'react-hot-toast';
 
 const Login = () => {
     const navigate = useNavigate();
-    const { login, user, isLoading, error, clearError } = useAuthStore();
+    const { login, isLoading, error, clearError } = useAuthStore();
 
     const [isRegister, setIsRegister] = useState(false);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
-    const [fullName, setFullName] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [registerLoading, setRegisterLoading] = useState(false);

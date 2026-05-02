@@ -31,7 +31,7 @@ app.use(helmet());
 // Rate limiting (skip CORS preflight)
 const limiter = rateLimit({
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
-    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 200,
+    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 1000,
     message: 'Too many requests from this IP, please try again later.',
     skip: (req) => req.method === 'OPTIONS' // Skip CORS preflight
 });

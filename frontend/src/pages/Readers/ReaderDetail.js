@@ -381,106 +381,124 @@ const ReaderDetail = () => {
                             </p>
                         </div>
                     ) : (
-                        <table className='w-full'>
-                            <thead className='bg-gray-50'>
-                                <tr>
-                                    <th className='table-header'>Sách</th>
-                                    <th className='table-header'>Barcode</th>
-                                    <th className='table-header'>Ngày mượn</th>
-                                    <th className='table-header'>Hạn trả</th>
-                                    <th className='table-header'>Còn lại</th>
-                                    <th className='table-header'>Phí</th>
-                                    <th className='table-header'>Trạng thái</th>
-                                </tr>
-                            </thead>
-                            <tbody className='divide-y divide-gray-200'>
-                                {currentBorrows.map((borrow) => (
-                                    <tr
-                                        key={borrow.detail_id}
-                                        className='hover:bg-gray-50'
-                                    >
-                                        <td className='table-cell'>
-                                            <div className='flex items-center gap-3'>
-                                                {borrow.cover_image ? (
-                                                    <img
-                                                        src={borrow.cover_image}
-                                                        alt={borrow.title}
-                                                        className='w-10 h-14 object-cover rounded'
-                                                    />
-                                                ) : (
-                                                    <div className='w-10 h-14 bg-gray-200 rounded flex items-center justify-center'>
-                                                        <RiBookLine className='w-5 h-5 text-gray-400' />
+                        <div className='max-h-96 overflow-y-auto overflow-x-auto'>
+                            <table className='w-full'>
+                                <thead className='bg-gray-50'>
+                                    <tr>
+                                        <th className='table-header'>Sách</th>
+                                        <th className='table-header'>
+                                            Barcode
+                                        </th>
+                                        <th className='table-header'>
+                                            Ngày mượn
+                                        </th>
+                                        <th className='table-header'>
+                                            Hạn trả
+                                        </th>
+                                        <th className='table-header'>
+                                            Còn lại
+                                        </th>
+                                        <th className='table-header'>Phí</th>
+                                        <th className='table-header'>
+                                            Trạng thái
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody className='divide-y divide-gray-200'>
+                                    {currentBorrows.map((borrow) => (
+                                        <tr
+                                            key={borrow.detail_id}
+                                            className='hover:bg-gray-50'
+                                        >
+                                            <td className='table-cell'>
+                                                <div className='flex items-center gap-3'>
+                                                    {borrow.cover_image ? (
+                                                        <img
+                                                            src={
+                                                                borrow.cover_image
+                                                            }
+                                                            alt={borrow.title}
+                                                            className='w-10 h-14 object-cover rounded'
+                                                        />
+                                                    ) : (
+                                                        <div className='w-10 h-14 bg-gray-200 rounded flex items-center justify-center'>
+                                                            <RiBookLine className='w-5 h-5 text-gray-400' />
+                                                        </div>
+                                                    )}
+                                                    <div>
+                                                        <p className='font-medium text-gray-900'>
+                                                            {borrow.title}
+                                                        </p>
+                                                        <p className='text-sm text-gray-500'>
+                                                            Mã:{' '}
+                                                            {
+                                                                borrow.transaction_code
+                                                            }
+                                                        </p>
                                                     </div>
-                                                )}
-                                                <div>
-                                                    <p className='font-medium text-gray-900'>
-                                                        {borrow.title}
-                                                    </p>
-                                                    <p className='text-sm text-gray-500'>
-                                                        Mã:{' '}
-                                                        {
-                                                            borrow.transaction_code
-                                                        }
-                                                    </p>
                                                 </div>
-                                            </div>
-                                        </td>
-                                        <td className='table-cell font-mono'>
-                                            {borrow.barcode}
-                                        </td>
-                                        <td className='table-cell'>
-                                            {format(
-                                                new Date(borrow.borrow_date),
-                                                'dd/MM/yyyy',
-                                                { locale: vi }
-                                            )}
-                                        </td>
-                                        <td className='table-cell'>
-                                            {format(
-                                                new Date(
-                                                    borrow.expected_return_date
-                                                ),
-                                                'dd/MM/yyyy',
-                                                { locale: vi }
-                                            )}
-                                        </td>
-                                        <td className='table-cell'>
-                                            <span
-                                                className={`badge ${getUrgencyColor(borrow.days_remaining)}`}
-                                            >
-                                                {borrow.days_remaining > 0
-                                                    ? `${borrow.days_remaining} ngày`
-                                                    : `${Math.abs(borrow.days_remaining)} ngày quá hạn`}
-                                            </span>
-                                        </td>
-                                        <td className='table-cell font-medium'>
-                                            {formatCurrency(borrow.subtotal)}
-                                        </td>
-                                        <td className='table-cell'>
-                                            <span
-                                                className={`badge ${
-                                                    borrow.urgency_status ===
+                                            </td>
+                                            <td className='table-cell font-mono'>
+                                                {borrow.barcode}
+                                            </td>
+                                            <td className='table-cell'>
+                                                {format(
+                                                    new Date(
+                                                        borrow.borrow_date
+                                                    ),
+                                                    'dd/MM/yyyy',
+                                                    { locale: vi }
+                                                )}
+                                            </td>
+                                            <td className='table-cell'>
+                                                {format(
+                                                    new Date(
+                                                        borrow.expected_return_date
+                                                    ),
+                                                    'dd/MM/yyyy',
+                                                    { locale: vi }
+                                                )}
+                                            </td>
+                                            <td className='table-cell'>
+                                                <span
+                                                    className={`badge ${getUrgencyColor(borrow.days_remaining)}`}
+                                                >
+                                                    {borrow.days_remaining > 0
+                                                        ? `${borrow.days_remaining} ngày`
+                                                        : `${Math.abs(borrow.days_remaining)} ngày quá hạn`}
+                                                </span>
+                                            </td>
+                                            <td className='table-cell font-medium'>
+                                                {formatCurrency(
+                                                    borrow.subtotal
+                                                )}
+                                            </td>
+                                            <td className='table-cell'>
+                                                <span
+                                                    className={`badge ${
+                                                        borrow.urgency_status ===
+                                                        'overdue'
+                                                            ? 'bg-red-100 text-red-800'
+                                                            : borrow.urgency_status ===
+                                                                'due_soon'
+                                                              ? 'bg-yellow-100 text-yellow-800'
+                                                              : 'bg-green-100 text-green-800'
+                                                    }`}
+                                                >
+                                                    {borrow.urgency_status ===
                                                     'overdue'
-                                                        ? 'bg-red-100 text-red-800'
+                                                        ? 'Quá hạn'
                                                         : borrow.urgency_status ===
                                                             'due_soon'
-                                                          ? 'bg-yellow-100 text-yellow-800'
-                                                          : 'bg-green-100 text-green-800'
-                                                }`}
-                                            >
-                                                {borrow.urgency_status ===
-                                                'overdue'
-                                                    ? 'Quá hạn'
-                                                    : borrow.urgency_status ===
-                                                        'due_soon'
-                                                      ? 'Sắp đến hạn'
-                                                      : 'Bình thường'}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                                          ? 'Sắp đến hạn'
+                                                          : 'Bình thường'}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
                     )}
                 </div>
             )}

@@ -291,19 +291,19 @@ const Dashboard = () => {
                 </a>
 
                 <a
-                    href='/returns'
+                    href='/books/new'
                     className='card p-6 hover:shadow-md transition-shadow'
                 >
                     <div className='flex items-center gap-4'>
                         <div className='p-3 bg-green-100 rounded-lg'>
-                            <RiArrowDownLine className='w-6 h-6 text-green-600' />
+                            <RiBookLine className='w-6 h-6 text-green-600' />
                         </div>
                         <div>
                             <h3 className='font-medium text-gray-900'>
-                                Trả sách
+                                Thêm sách mới
                             </h3>
                             <p className='text-sm text-gray-500'>
-                                Xử lý trả sách
+                                Tạo sách mới
                             </p>
                         </div>
                     </div>

@@ -27,8 +27,11 @@ const Returns = () => {
     const [returnResult, setReturnResult] = useState(null);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
 
+    const [activeBorrows, setActiveBorrows] = useState([]);
+
     useEffect(() => {
         loadReferenceData();
+        loadActiveBorrows();
     }, []);
 
     const loadReferenceData = async () => {
@@ -41,6 +44,15 @@ const Returns = () => {
             setPaymentMethods(paymentRes.data || []);
         } catch (error) {
             console.error('Error loading reference data:', error);
+        }
+    };
+
+    const loadActiveBorrows = async () => {
+        try {
+            const response = await borrowService.getAll({ status: 'active' });
+            setActiveBorrows(response.data || []);
+        } catch (error) {
+            console.error('Error loading active borrows:', error);
         }
     };
 
