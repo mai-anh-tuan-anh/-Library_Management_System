@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RiMenuLine, RiNotificationLine, RiSearchLine } from 'react-icons/ri';
+import { RiMenuLine, RiNotificationLine } from 'react-icons/ri';
 
 const Header = ({ sidebarOpen, setSidebarOpen }) => {
     const navigate = useNavigate();

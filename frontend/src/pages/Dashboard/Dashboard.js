@@ -6,8 +6,7 @@ import {
     RiMoneyDollarCircleLine,
     RiArrowUpLine,
     RiArrowDownLine,
-    RiAlarmWarningLine,
-    RiTimeLine
+    RiAlarmWarningLine
 } from 'react-icons/ri';
 import {
     Chart as ChartJS,
@@ -21,7 +20,7 @@ import {
     Legend,
     ArcElement
 } from 'chart.js';
-import { Bar, Line, Doughnut } from 'react-chartjs-2';
+import { Line } from 'react-chartjs-2';
 import reportService from '../../services/reportService';
 import borrowService from '../../services/borrowService';
 

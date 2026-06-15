@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
     RiArrowLeftLine,
     RiBookLine,
-    RiBarcodeLine,
     RiEditLine,
     RiAddLine,
     RiCloseLine,
@@ -35,9 +34,9 @@ const BookDetail = () => {
 
     useEffect(() => {
         loadBookData();
-    }, [id]);
+    }, [id, loadBookData]);
 
-    const loadBookData = async () => {
+    const loadBookData = React.useCallback(async () => {
         try {
             const [bookRes, copiesRes] = await Promise.all([
                 bookService.getById(id),

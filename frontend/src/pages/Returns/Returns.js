@@ -27,11 +27,8 @@ const Returns = () => {
     const [returnResult, setReturnResult] = useState(null);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
 
-    const [activeBorrows, setActiveBorrows] = useState([]);
-
     useEffect(() => {
         loadReferenceData();
-        loadActiveBorrows();
     }, []);
 
     const loadReferenceData = async () => {
@@ -44,15 +41,6 @@ const Returns = () => {
             setPaymentMethods(paymentRes.data || []);
         } catch (error) {
             console.error('Error loading reference data:', error);
-        }
-    };
-
-    const loadActiveBorrows = async () => {
-        try {
-            const response = await borrowService.getAll({ status: 'active' });
-            setActiveBorrows(response.data || []);
-        } catch (error) {
-            console.error('Error loading active borrows:', error);
         }
     };
 
@@ -149,8 +137,7 @@ const Returns = () => {
                     damage_description: '',
                     fine_payment_method_id: '1'
                 });
-                // Refresh borrow list
-                loadActiveBorrows();
+                // Sách trả thành công, không cần refresh danh sách ở đây vì không hiển thị
             } else {
                 // Show confirmation modal with fee details
                 setReturnResult(result.data);

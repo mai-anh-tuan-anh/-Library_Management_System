@@ -8,7 +8,6 @@ import {
     RiAddLine,
     RiDeleteBinLine,
     RiMoneyDollarCircleLine,
-    RiCalendarLine,
     RiSearchLine
 } from 'react-icons/ri';
 import toast from 'react-hot-toast';

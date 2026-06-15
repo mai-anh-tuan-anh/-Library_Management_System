@@ -3,8 +3,7 @@ import {
     RiAlarmWarningLine,
     RiPhoneLine,
     RiMailLine,
-    RiCheckLine,
-    RiNotificationLine
+    RiCheckLine
 } from 'react-icons/ri';
 import toast from 'react-hot-toast';
 import borrowService from '../../services/borrowService';
@@ -36,15 +35,6 @@ const DueAlerts = () => {
             toast.error('Không thể tải danh sách cảnh báo');
         } finally {
             setLoading(false);
-        }
-    };
-
-    const sendReminder = async (transactionId, daysRemaining) => {
-        try {
-            await borrowService.sendReminder(transactionId, daysRemaining);
-            toast.success('Đã gửi nhắc nhở');
-        } catch (error) {
-            toast.error('Gửi nhắc nhở thất bại');
         }
     };
 

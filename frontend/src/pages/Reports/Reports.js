@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
     RiBarChartLine,
     RiDownloadLine,
-    RiCalendarLine,
     RiBookLine,
     RiUserLine,
     RiVipCrownLine
@@ -55,14 +54,8 @@ const Reports = () => {
     const [monthlyRevenueData, setMonthlyRevenueData] = useState([]);
     const [topBooks, setTopBooks] = useState([]);
     const [topReaders, setTopReaders] = useState([]);
-    const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        loadReports();
-    }, [activeTab]);
-
-    const loadReports = async () => {
-        setLoading(true);
+    const loadReports = React.useCallback(async () => {
         try {
             if (activeTab === 'revenue') {
                 const [dailyRes, weeklyRes] = await Promise.all([
@@ -122,10 +115,12 @@ const Reports = () => {
             }
         } catch (error) {
             toast.error('Không thể tải báo cáo');
-        } finally {
-            setLoading(false);
         }
-    };
+    }, [activeTab]);
+
+    useEffect(() => {
+        loadReports();
+    }, [loadReports]);
 
     const formatCurrency = (value) => {
         return new Intl.NumberFormat('vi-VN', {

@@ -5,9 +5,7 @@ import {
     RiEyeLine,
     RiExchangeLine,
     RiCalendarLine,
-    RiMoneyDollarCircleLine,
     RiUserLine,
-    RiBookLine,
     RiSearchLine
 } from 'react-icons/ri';
 import { format } from 'date-fns';

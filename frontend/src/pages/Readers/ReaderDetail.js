@@ -8,21 +8,12 @@ import {
     RiMapPinLine,
     RiVipCrownLine,
     RiBookLine,
-    RiTimeLine,
-    RiAlertLine,
     RiHistoryLine
 } from 'react-icons/ri';
 import toast from 'react-hot-toast';
 import readerService from '../../services/readerService';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
-
-const formatCurrency = (value) => {
-    return new Intl.NumberFormat('vi-VN', {
-        style: 'currency',
-        currency: 'VND'
-    }).format(value || 0);
-};
 
 const getTierColor = (tierName) => {
     const colors = {
@@ -52,15 +43,15 @@ const ReaderDetail = () => {
 
     useEffect(() => {
         loadReaderData();
-    }, [id]);
+    }, [id, loadReaderData]);
 
     useEffect(() => {
         if (activeTab === 'history') {
             loadBorrowHistory();
         }
-    }, [activeTab, id]);
+    }, [activeTab, id, loadBorrowHistory]);
 
-    const loadReaderData = async () => {
+    const loadReaderData = React.useCallback(async () => {
         try {
             const [readerRes, borrowsRes] = await Promise.all([
                 readerService.getById(id),
@@ -75,16 +66,16 @@ const ReaderDetail = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [id, navigate]);
 
-    const loadBorrowHistory = async () => {
+    const loadBorrowHistory = React.useCallback(async () => {
         try {
             const res = await readerService.getBorrowHistory(id);
             setBorrowHistory(res.data || []);
         } catch (error) {
             toast.error('Không thể tải lịch sử mượn');
         }
-    };
+    }, [id]);
 
     const formatCurrency = (value) => {
         return new Intl.NumberFormat('vi-VN', {

@@ -6,7 +6,6 @@ import {
     RiEditLine,
     RiDeleteBinLine,
     RiEyeLine,
-    RiUserLine,
     RiPhoneLine,
     RiMailLine,
     RiVipCrownLine,
@@ -16,17 +15,6 @@ import toast from 'react-hot-toast';
 import readerService from '../../services/readerService';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
-
-const getTierColor = (tierName) => {
-    const colors = {
-        Đồng: 'bg-bronze',
-        Bạc: 'bg-silver',
-        Vàng: 'bg-gold',
-        'Kim Cương': 'bg-diamond',
-        'Huyền Thoại': 'bg-legend'
-    };
-    return colors[tierName] || 'bg-gray-400';
-};
 
 const getTierBg = (tierName) => {
     const colors = {

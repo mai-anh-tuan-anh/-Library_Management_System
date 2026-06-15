@@ -32,27 +32,27 @@ const BookForm = () => {
         loadCategories();
         loadPublishers();
         if (isEdit) loadBook();
-    }, [id]);
+    }, [id, isEdit, loadBook, loadCategories, loadPublishers]);
 
-    const loadCategories = async () => {
+    const loadCategories = React.useCallback(async () => {
         try {
             const response = await bookService.getCategories();
             setCategories(response.data || []);
         } catch (error) {
             console.error('Error loading categories:', error);
         }
-    };
+    }, []);
 
-    const loadPublishers = async () => {
+    const loadPublishers = React.useCallback(async () => {
         try {
             const response = await bookService.getPublishers();
             setPublishers(response.data || []);
         } catch (error) {
             console.error('Error loading publishers:', error);
         }
-    };
+    }, []);
 
-    const loadBook = async () => {
+    const loadBook = React.useCallback(async () => {
         try {
             const response = await bookService.getById(id);
             const book = response.data;
