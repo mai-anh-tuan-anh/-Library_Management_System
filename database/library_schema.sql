@@ -1,7 +1,3 @@
--- Drop database if exists and create new
-DROP DATABASE IF EXISTS national_library;
-CREATE DATABASE national_library CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE national_library;
 
 -- =====================================================
 -- 1. USER MANAGEMENT SYSTEM (3 tables)
@@ -1562,7 +1558,7 @@ SELECT
 FROM borrow_transactions bt
 WHERE bt.payment_status = 'paid'
 GROUP BY DATE_FORMAT(bt.payment_date, '%Y-%m'), YEAR(bt.payment_date), MONTH(bt.payment_date)
-ORDER BY year DESC, month DESC;
+ORDER BY YEAR(bt.payment_date) DESC, MONTH(bt.payment_date) DESC;
 
 -- View: Revenue summary by week (last 4 weeks)
 DROP VIEW IF EXISTS vw_revenue_weekly;
@@ -1581,7 +1577,7 @@ FROM (
     UNION SELECT 2, 15, 21, DATE_FORMAT(CURDATE(), '%Y-%m-01') + INTERVAL 14 DAY
     UNION SELECT 3, 22, 28, DATE_FORMAT(CURDATE(), '%Y-%m-01') + INTERVAL 21 DAY
     UNION SELECT 4, 29, 31, DATE_FORMAT(CURDATE(), '%Y-%m-01') + INTERVAL 28 DAY
-) 
+) w
 LEFT JOIN (
     SELECT 
         FLOOR((DAY(payment_date) - 1) / 7) + 1 as week_num,
@@ -1634,7 +1630,7 @@ LEFT JOIN publishers p ON b.publisher_id = p.publisher_id
 WHERE b.deleted_at IS NULL
 GROUP BY b.book_id, b.book_code, b.isbn, b.title, b.cover_image, b.price, 
          b.borrow_price_per_day, c.category_name, p.publisher_name, b.total_copies, b.available_copies
-ORDER BY total_borrows DESC;
+ORDER BY COUNT(DISTINCT bd.detail_id) DESC;
 
 -- View: Top readers
 CREATE VIEW vw_top_readers AS
@@ -1664,7 +1660,7 @@ LEFT JOIN return_records rr ON bd.detail_id = rr.detail_id
 WHERE r.deleted_at IS NULL
 GROUP BY r.reader_id, r.card_number, r.full_name, r.phone, r.email, 
          mt.tier_name, mt.badge_icon, r.registered_at, r.current_borrows
-ORDER BY total_borrows DESC;
+ORDER BY COUNT(DISTINCT bt.transaction_id) DESC;
 
 -- View: Books due soon (for librarian alerts)
 CREATE VIEW vw_books_due_soon AS
@@ -1699,7 +1695,7 @@ LEFT JOIN due_reminders dr ON bt.transaction_id = dr.transaction_id
 WHERE bt.status = 'active'
 AND NOT EXISTS (SELECT 1 FROM return_records rr WHERE rr.detail_id = bd.detail_id)
 AND DATEDIFF(bt.expected_return_date, CURDATE()) <= 3
-ORDER BY days_remaining ASC;
+ORDER BY DATEDIFF(bt.expected_return_date, CURDATE()) ASC;
 
 -- View: Overdue books
 CREATE VIEW vw_overdue_books AS
@@ -1720,7 +1716,7 @@ SELECT
     bt.borrow_date,
     bt.expected_return_date,
     DATEDIFF(CURDATE(), bt.expected_return_date) as days_overdue,
-    calculate_late_fee(b.price, DATEDIFF(CURDATE(), bt.expected_return_date), 50.00) as estimated_fine
+    calculate_late_fee(b.price, DATEDIFF(CURDATE(), bt.expected_return_date)) as estimated_fine
 FROM borrow_transactions bt
 JOIN readers r ON bt.reader_id = r.reader_id
 JOIN membership_tiers mt ON r.tier_id = mt.tier_id
@@ -1730,7 +1726,7 @@ JOIN book_copies bc ON bd.copy_id = bc.copy_id
 WHERE bt.status = 'active'
 AND bt.expected_return_date < CURDATE()
 AND NOT EXISTS (SELECT 1 FROM return_records rr WHERE rr.detail_id = bd.detail_id)
-ORDER BY days_overdue DESC;
+ORDER BY DATEDIFF(CURDATE(), bt.expected_return_date) DESC;
 
 -- View: Inventory status
 CREATE VIEW vw_inventory_status AS
@@ -1798,7 +1794,7 @@ SELECT
     END as alert_level,
     CASE 
         WHEN DATEDIFF(DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY), CURDATE()) < 0 
-            THEN calculate_late_fee(b.price, ABS(DATEDIFF(DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY), CURDATE())), 50.00)
+            THEN calculate_late_fee(b.price, ABS(DATEDIFF(DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY), CURDATE())))
         ELSE 0
     END as estimated_fine,
     NOT EXISTS (SELECT 1 FROM return_records rr WHERE rr.detail_id = bd.detail_id) as is_unreturned
@@ -1810,13 +1806,13 @@ JOIN books b ON bc.book_id = b.book_id
 WHERE bt.status IN ('active', 'overdue')
 AND bc.status = 'borrowed'
 ORDER BY 
-    CASE alert_level
-        WHEN 'overdue' THEN 1
-        WHEN 'urgent' THEN 2
-        WHEN 'warning' THEN 3
+    CASE 
+        WHEN DATEDIFF(DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY), CURDATE()) < 0 THEN 1
+        WHEN DATEDIFF(DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY), CURDATE()) <= 2 THEN 2
+        WHEN DATEDIFF(DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY), CURDATE()) <= 5 THEN 3
         ELSE 4
     END,
-    days_remaining ASC;
+    DATEDIFF(DATE_ADD(bt.borrow_date, INTERVAL bd.borrow_days DAY), CURDATE()) ASC;
 
 -- =====================================================
 -- EVENTS (Task Scheduling)
@@ -2297,4 +2293,4 @@ FROM (
     GROUP BY DATE(rr.return_date)
 ) combined
 GROUP BY revenue_date
-ORDER BY revenue_date DESC;
+ORDER BY 1 DESC;
