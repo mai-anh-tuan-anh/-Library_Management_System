@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { RiArrowLeftLine, RiSaveLine } from 'react-icons/ri';
 import toast from 'react-hot-toast';
@@ -25,16 +25,10 @@ const BookForm = () => {
         price: '',
         borrow_price_per_day: '',
         summary: '',
-        is_active: true
+        is_active: true,
     });
 
-    useEffect(() => {
-        loadCategories();
-        loadPublishers();
-        if (isEdit) loadBook();
-    }, [id, isEdit, loadBook, loadCategories, loadPublishers]);
-
-    const loadCategories = React.useCallback(async () => {
+    const loadCategories = useCallback(async () => {
         try {
             const response = await bookService.getCategories();
             setCategories(response.data || []);
@@ -43,7 +37,7 @@ const BookForm = () => {
         }
     }, []);
 
-    const loadPublishers = React.useCallback(async () => {
+    const loadPublishers = useCallback(async () => {
         try {
             const response = await bookService.getPublishers();
             setPublishers(response.data || []);
@@ -52,7 +46,7 @@ const BookForm = () => {
         }
     }, []);
 
-    const loadBook = React.useCallback(async () => {
+    const loadBook = useCallback(async () => {
         try {
             const response = await bookService.getById(id);
             const book = response.data;
@@ -68,7 +62,7 @@ const BookForm = () => {
                 price: book.price || '',
                 borrow_price_per_day: book.borrow_price_per_day || '',
                 summary: book.summary || '',
-                is_active: book.is_active !== false
+                is_active: book.is_active !== false,
             });
         } catch (error) {
             toast.error('Không thể tải thông tin sách');
@@ -76,11 +70,17 @@ const BookForm = () => {
         }
     }, [id, navigate]);
 
+    useEffect(() => {
+        loadCategories();
+        loadPublishers();
+        if (isEdit) loadBook();
+    }, [id, isEdit, loadBook, loadCategories, loadPublishers]);
+
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
         setFormData((prev) => ({
             ...prev,
-            [name]: type === 'checkbox' ? checked : value
+            [name]: type === 'checkbox' ? checked : value,
         }));
     };
 

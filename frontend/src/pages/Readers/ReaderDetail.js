@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     RiArrowLeftLine,
@@ -41,17 +41,7 @@ const ReaderDetail = () => {
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('info');
 
-    useEffect(() => {
-        loadReaderData();
-    }, [id, loadReaderData]);
-
-    useEffect(() => {
-        if (activeTab === 'history') {
-            loadBorrowHistory();
-        }
-    }, [activeTab, id, loadBorrowHistory]);
-
-    const loadReaderData = React.useCallback(async () => {
+    const loadReaderData = useCallback(async () => {
         try {
             const [readerRes, borrowsRes] = await Promise.all([
                 readerService.getById(id),
@@ -68,7 +58,7 @@ const ReaderDetail = () => {
         }
     }, [id, navigate]);
 
-    const loadBorrowHistory = React.useCallback(async () => {
+    const loadBorrowHistory = useCallback(async () => {
         try {
             const res = await readerService.getBorrowHistory(id);
             setBorrowHistory(res.data || []);
@@ -76,6 +66,16 @@ const ReaderDetail = () => {
             toast.error('Không thể tải lịch sử mượn');
         }
     }, [id]);
+
+    useEffect(() => {
+        loadReaderData();
+    }, [id, loadReaderData]);
+
+    useEffect(() => {
+        if (activeTab === 'history') {
+            loadBorrowHistory();
+        }
+    }, [activeTab, id, loadBorrowHistory]);
 
     const formatCurrency = (value) => {
         return new Intl.NumberFormat('vi-VN', {

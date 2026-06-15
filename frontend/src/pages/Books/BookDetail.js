@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     RiArrowLeftLine,
@@ -32,15 +32,11 @@ const BookDetail = () => {
         acquisition_date: new Date().toISOString().split('T')[0]
     });
 
-    useEffect(() => {
-        loadBookData();
-    }, [id, loadBookData]);
-
-    const loadBookData = React.useCallback(async () => {
+    const loadBookData = useCallback(async () => {
         try {
             const [bookRes, copiesRes] = await Promise.all([
                 bookService.getById(id),
-                bookService.getCopies(id)
+                bookService.getCopies(id),
             ]);
 
             setBook(bookRes.data);
@@ -52,6 +48,10 @@ const BookDetail = () => {
             setLoading(false);
         }
     }, [id, navigate]);
+
+    useEffect(() => {
+        loadBookData();
+    }, [id, loadBookData]);
 
     const formatCurrency = (value) => {
         return new Intl.NumberFormat('vi-VN', {
