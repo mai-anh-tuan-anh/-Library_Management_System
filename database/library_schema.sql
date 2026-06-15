@@ -1,11 +1,3 @@
--- =====================================================
--- NATIONAL LIBRARY DATABASE SCHEMA
--- =====================================================
--- Version: 1.0
--- Description: Complete Library Management System
--- Features: Transaction & Rollback, Triggers, Views, Events
--- =====================================================
-
 -- Drop database if exists and create new
 DROP DATABASE IF EXISTS national_library;
 CREATE DATABASE national_library CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

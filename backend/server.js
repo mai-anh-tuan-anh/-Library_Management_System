@@ -16,8 +16,14 @@ const { errorHandler } = require('./src/middleware/error.middleware');
 const app = express();
 
 // CORS configuration - MUST be before other middleware
+// CORS_ORIGIN: one URL or comma-separated list (e.g. https://your-app.vercel.app)
+const defaultOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000'];
+const envOrigins = (process.env.CORS_ORIGIN || '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
 const corsOptions = {
-    origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+    origin: envOrigins.length > 0 ? envOrigins : defaultOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
@@ -31,7 +37,7 @@ app.use(helmet());
 // Rate limiting (skip CORS preflight)
 const limiter = rateLimit({
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
-    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 1000,
+    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 5000,
     message: 'Too many requests from this IP, please try again later.',
     skip: (req) => req.method === 'OPTIONS' // Skip CORS preflight
 });
