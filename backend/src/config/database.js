@@ -13,8 +13,12 @@ const pool = mysql.createPool({
     keepAliveInitialDelay: 10000,
     multipleStatements: true,
     ...(process.env.DB_SSL === 'true'
-        ? { ssl: { rejectUnauthorized: true } }
-        : {})
+        ? {
+              ssl: {
+                  rejectUnauthorized: false,
+              },
+          }
+        : {}),
 });
 
 // Execute query helper
