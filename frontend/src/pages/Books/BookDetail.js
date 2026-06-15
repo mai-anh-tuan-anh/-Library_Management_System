@@ -51,7 +51,7 @@ const BookDetail = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [id, navigate]);
 
     const formatCurrency = (value) => {
         return new Intl.NumberFormat('vi-VN', {

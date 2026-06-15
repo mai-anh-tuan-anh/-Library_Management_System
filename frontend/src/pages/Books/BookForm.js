@@ -74,7 +74,7 @@ const BookForm = () => {
             toast.error('Không thể tải thông tin sách');
             navigate('/books');
         }
-    };
+    }, [id, navigate]);
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
