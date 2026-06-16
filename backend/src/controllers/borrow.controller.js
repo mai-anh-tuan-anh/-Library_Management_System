@@ -49,7 +49,7 @@ const getAllBorrowings = asyncHandler(async (req, res) => {
      LEFT JOIN books b ON bc.book_id = b.book_id
      LEFT JOIN return_records rr ON rr.detail_id = bd.detail_id
      ${whereClause}
-     GROUP BY bt.transaction_id
+     GROUP BY bt.transaction_id, r.full_name, r.card_number, r.phone
      ORDER BY bt.created_at DESC
      LIMIT ? OFFSET ?`,
         [...params, pageSize, offset]

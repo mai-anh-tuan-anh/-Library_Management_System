@@ -18,7 +18,7 @@ const getRevenueDaily = asyncHandler(async (req, res) => {
      ${whereClause}
      ORDER BY revenue_date DESC
      LIMIT ?`,
-        [...params, parseInt(limit)]
+        [...params, parseInt(limit) || 30]
     );
 
     res.json({
@@ -33,9 +33,9 @@ const getRevenueWeekly = asyncHandler(async (req, res) => {
 
     const revenue = await query(
         `SELECT * FROM vw_revenue_weekly 
-     ORDER BY week_label DESC
+     ORDER BY week_date DESC
      LIMIT ?`,
-        [parseInt(limit)]
+        [parseInt(limit) || 4]
     );
 
     res.json({
@@ -53,7 +53,7 @@ const getRevenueMonthly = asyncHandler(async (req, res) => {
 
     if (year) {
         whereClause = 'WHERE year = ?';
-        params.push(year);
+        params.push(parseInt(year));
     }
 
     const revenue = await query(
@@ -61,7 +61,7 @@ const getRevenueMonthly = asyncHandler(async (req, res) => {
      ${whereClause}
      ORDER BY year DESC, month DESC
      LIMIT ?`,
-        [...params, parseInt(limit)]
+        [...params, parseInt(limit) || 12]
     );
 
     res.json({
@@ -91,7 +91,7 @@ const getTopBooks = asyncHandler(async (req, res) => {
         GROUP BY b.book_id, b.title, b.book_code, c.category_name
         ORDER BY total_borrows DESC, unique_readers DESC, total_revenue DESC, b.title ASC
         LIMIT ?`,
-        [parseInt(limit)]
+        [parseInt(limit) || 10]
     );
 
     res.json({
@@ -121,7 +121,7 @@ const getTopReaders = asyncHandler(async (req, res) => {
         GROUP BY r.reader_id, r.full_name, r.card_number, mt.tier_name
         ORDER BY total_borrows DESC, total_spent DESC, member_level DESC, books_read DESC, r.full_name ASC
         LIMIT ?`,
-        [parseInt(limit)]
+        [parseInt(limit) || 10]
     );
 
     res.json({
@@ -133,7 +133,9 @@ const getTopReaders = asyncHandler(async (req, res) => {
 // Get inventory status
 const getInventory = asyncHandler(async (req, res) => {
     const { category_id, status, page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;
+    const pPage = parseInt(page) || 1;
+    const pLimit = parseInt(limit) || 20;
+    const offset = (pPage - 1) * pLimit;
 
     let whereClause = '';
     const params = [];
@@ -165,17 +167,17 @@ const getInventory = asyncHandler(async (req, res) => {
      ${whereClause}
      ORDER BY availability_percentage ASC
      LIMIT ? OFFSET ?`,
-        [...params, parseInt(limit), offset]
+        [...params, pLimit, offset]
     );
 
     res.json({
         success: true,
         data: inventory,
         pagination: {
-            page: parseInt(page),
-            limit: parseInt(limit),
-            total: countResult.total,
-            totalPages: Math.ceil(countResult.total / limit)
+            page: pPage,
+            limit: pLimit,
+            total: countResult?.total || 0,
+            totalPages: Math.ceil((countResult?.total || 0) / pLimit)
         }
     });
 });

@@ -1544,7 +1544,7 @@ SELECT
     DATE_FORMAT(bt.payment_date, '%Y-%m') as month_key,
     YEAR(bt.payment_date) as year,
     MONTH(bt.payment_date) as month,
-    DATE_FORMAT(bt.payment_date, '%M %Y') as month_name,
+    MAX(DATE_FORMAT(bt.payment_date, '%M %Y')) as month_name,
     COUNT(DISTINCT bt.transaction_id) as borrow_transactions,
     SUM(bt.borrow_fee) as borrow_revenue,
     (SELECT COALESCE(SUM(rr.fine_amount), 0)
