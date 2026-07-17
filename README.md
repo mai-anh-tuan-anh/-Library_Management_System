@@ -1,77 +1,71 @@
 # National Library Management System
 
-Website quản lý thư viện theo mô hình fullstack (`React + Node.js + MySQL`) dành cho nghiệp vụ thực tế: quản lý độc giả, quản lý đầu sách và bản sao, luồng mượn/trả theo barcode, tính phí phạt, cảnh báo đến hạn, báo cáo doanh thu.
+A full-stack library management platform built with **React**, **Node.js**, and **MySQL**. It covers reader profiles, book inventory with barcoded copies, multi-book borrow/return workflows, late fines, due-date alerts, and revenue reporting.
 
-## Tổng quan dự án
+[Link demo: [National Library - Hệ thống Quản lý Thư viện]](https://library-management-system-sepia-theta.vercel.app/login)
 
-Đây là một hệ thống mô phỏng hoạt động của thư viện hiện đại, tập trung vào 3 mục tiêu:
+## Features
 
-- Chuẩn hóa nghiệp vụ mượn/trả: giao dịch nhiều sách trong một phiếu, kiểm soát hạn mượn theo hạng thành viên.
-- Theo dõi tồn kho theo từng bản sao (`book_copies`) thay vì chỉ theo đầu sách.
-- Tự động hóa vận hành: trigger/procedure/event trong DB để xử lý phạt, nhắc hạn, downgrade thành viên, báo cáo.
+- **Reader management** — profiles, membership tiers, borrow limits
+- **Book inventory** — titles, categories, publishers, and per-copy barcode tracking
+- **Borrow & return** — 3-step borrow flow (select reader → scan barcodes → finalize); return with late/damage fees
+- **Due alerts** — books due soon or overdue
+- **Dashboard & reports** — revenue charts, top books/readers (Chart.js)
+- **Role-based UI** — menu access by role (admin, librarian, staff, accountant, reader)
+- **Database automation** — stored procedures, triggers, functions, and views for fees, reminders, and analytics
 
-## Lý do xây dựng website này
+## Tech Stack
 
-- Thay thế cách quản lý thủ công (sổ sách/Excel) vốn khó kiểm soát lịch sử mượn trả và tình trạng sách.
-- Tạo nền tảng học tập đầy đủ cho mô hình fullstack có nghiệp vụ rõ ràng từ `frontend -> backend -> database`.
-- Minh họa cách kết hợp business logic ở cả tầng API và tầng SQL (function/procedure/trigger/view/event).
 
-## Tech stack
+| Layer    | Technologies                                                      |
+| -------- | ----------------------------------------------------------------- |
+| Frontend | React 18, React Router v6, Axios, Zustand, Tailwind CSS, Chart.js |
+| Backend  | Node.js, Express, mysql2, JWT, bcryptjs, helmet, cors             |
+| Database | MySQL — 26 tables, procedures, triggers, functions, views         |
 
-### Frontend
 
-- `React 18`
-- `React Router v6`
-- `Axios`
-- `Zustand` (auth state)
-- `Tailwind CSS`
-- `Chart.js` + `react-chartjs-2`
-- `react-hot-toast`, `react-icons`
+## Project Structure
 
-### Backend
-
-- `Node.js` + `Express`
-- `mysql2/promise` (pool + transaction + stored procedure caller)
-- `JWT` (`jsonwebtoken`)
-- `bcryptjs`
-- `helmet`, `cors`, `express-rate-limit`, `morgan`
-
-### Database
-
-- `MySQL`
-- `26 bảng` chính (quản trị user, bạn đọc, kho sách, giao dịch mượn/trả, notification, system)
-- Functions, triggers, stored procedures, views, events
-
-## Đối tượng người dùng
-
-- **Admin/Thủ thư**: quản lý độc giả, sách, phiếu mượn/trả, cảnh báo hạn trả.
-- **Nhân viên vận hành**: xử lý trả sách bằng barcode, tính phí phạt.
-- **Quản lý**: xem dashboard, doanh thu ngày/tuần/tháng, top sách/độc giả.
-- **Developer mới**: có thể học cách tổ chức hệ thống fullstack thực chiến theo module.
-
-## Cách sử dụng website
-
-### 1 Chuẩn bị database
-
-```bash
-mysql -u root -p < database/library_schema.sql
+```
+national_library/
+├── frontend/          # React SPA (Vercel-ready)
+├── backend/           # Express REST API
+└── database/
+    └── library_schema.sql
 ```
 
-Schema sẽ tự tạo DB `national_library`, bảng, dữ liệu mẫu, procedure/function/trigger/view/event.
+## Getting Started
 
-### 2 Chạy backend
+### Prerequisites
+
+- Node.js 18+
+- MySQL 8+
+
+### 1. Database
+
+Create a database, then import the schema:
+
+```bash
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS national_library;"
+mysql -u root -p national_library < database/library_schema.sql
+```
+
+The schema creates tables, seed data, and database objects (procedures, triggers, views).  
+`CREATE EVENT` and `SET GLOBAL event_scheduler` may fail on managed MySQL hosts without SUPER privileges — the app still works without scheduled events.
+
+### 2. Backend
 
 ```bash
 cd backend
 npm install
-copy .env.example .env
+cp .env.example .env   # Windows: copy .env.example .env
 npm run dev
 ```
 
-API mặc định: `http://localhost:5000`  
+Default API: `http://localhost:5000`  
 Health check: `GET /api/health`
 
-### 3 Chạy frontend
+### 3. Frontend
 
 ```bash
 cd frontend
@@ -79,43 +73,83 @@ npm install
 npm start
 ```
 
-Web app mặc định: `http://localhost:3000`
+Default app: `http://localhost:3000`
 
-### 4 Đăng nhập demo
+Set the API URL if the backend is not on localhost:
 
-- Email: `admin@library.vn`
-- Password: `admin123`
+```bash
+# frontend/.env
+REACT_APP_API_URL=http://localhost:5000/api
+```
 
-### 5 Luồng dùng cơ bản
+### Demo Login
 
-- Vào `Độc giả` để tạo/chỉnh sửa hồ sơ bạn đọc.
-- Vào `Sách` để tạo đầu sách và thêm bản sao (`barcode`).
-- Vào `Mượn sách / Trả sách` để tạo phiếu mượn 3 bước: chọn độc giả -> quét barcode -> finalize.
-- Vào `Mượn sách / Trả sách` hoặc modal trả sách trong trang mượn để xử lý trả và phí phạt.
-- Vào `Báo cáo` để xem doanh thu + top books + top readers.
 
-## Demo
+| Field    | Value              |
+| -------- | ------------------ |
+| Email    | `admin@library.vn` |
+| Password | `admin123`         |
 
-Hiện tại dự án được thiết kế theo demo local:
 
-- Frontend: `http://localhost:3000`
-- Backend API: `http://localhost:5000/api`
-- Health endpoint: `http://localhost:5000/api/health`
+### Quick Demo Flow
 
-Bạn có thể quay màn hình nhanh theo kịch bản demo sau:
+1. Log in as admin.
+2. Create a reader under **Readers**.
+3. Add a book and copies (barcodes) under **Books**.
+4. Start a borrow transaction: select reader → scan barcodes → finalize.
+5. Process a return (optionally overdue/damaged) to see fines applied.
+6. Open **Reports** to view revenue and rankings.
 
-1. Login bằng tài khoản admin.
-2. Tạo một độc giả mới.
-3. Tạo phiếu mượn mới bằng barcode.
-4. Trả sách với tình huống quá hạn/hư hỏng để thấy phí phạt.
-5. Mở trang báo cáo để xem dữ liệu đã phát sinh.
+## Deployment
 
-## Tài liệu chi tiết kèm theo
+### Frontend (Vercel)
 
-- `file1.md`: phân tích toàn bộ folder/file, API flow, cách frontend gọi backend, backend làm việc với database.
-- `file2.md`: phân tích chuyên sâu `database/library_schema.sql` (tables, procedures, transactions, triggers, views, events).
 
-## Lưu ý quan trọng
+| Setting          | Value           |
+| ---------------- | --------------- |
+| Root Directory   | `frontend`      |
+| Build Command    | `npm run build` |
+| Output Directory | `build`         |
 
-- File SQL hiện có một số đối tượng được định nghĩa lại ở cuối file (ví dụ `sp_process_return`, `vw_revenue_daily`, `vw_revenue_weekly`). Bản định nghĩa cuối cùng sẽ là bản có hiệu lực.
-- Một số cột/trạng thái trong schema rộng hơn phần backend đang sử dụng; đây là điểm mở rộng nghiệp vụ, không phải lỗi chạy ngay lập tức.
+
+Environment variable:
+
+```
+REACT_APP_API_URL=https://your-backend-url/api
+```
+
+### Backend (Render, Railway, etc.)
+
+Set from `backend/.env.example`, plus:
+
+```
+CORS_ORIGIN=https://your-frontend-url.vercel.app
+DB_SSL=true          # required for Aiven and most cloud MySQL providers
+```
+
+### Database (Aiven, PlanetScale, etc.)
+
+Import `database/library_schema.sql` into your target database and point `DB_NAME`, `DB_HOST`, `DB_PORT`, and credentials at the backend.
+
+## API Overview
+
+
+| Prefix            | Purpose                    |
+| ----------------- | -------------------------- |
+| `/api/auth`       | Login, register, profile   |
+| `/api/readers`    | Reader CRUD and membership |
+| `/api/books`      | Books, copies, categories  |
+| `/api/borrowings` | Borrow/return transactions |
+| `/api/reports`    | Dashboard and analytics    |
+| `/api/settings`   | System settings            |
+
+
+## Notes
+
+- **Users vs readers** — login accounts live in `users`; library cards live in `readers`. Registration creates a `users` row with the `reader` role, not a `readers` profile automatically.
+- **Schema duplicates** — some objects (e.g. `vw_revenue_daily`, `sp_process_return`) are redefined at the end of `library_schema.sql`; the last definition wins.
+- **Authorization** — role checks are enforced in the frontend sidebar; most backend routes use JWT authentication only.
+
+## License
+
+Educational / portfolio project.
