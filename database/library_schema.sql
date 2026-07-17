@@ -1540,25 +1540,40 @@ ORDER BY YEAR(bt.payment_date) DESC, WEEK(bt.payment_date) DESC;
 
 -- View: Revenue summary by month
 CREATE VIEW vw_revenue_monthly AS
-SELECT 
-    DATE_FORMAT(bt.payment_date, '%Y-%m') as month_key,
-    YEAR(bt.payment_date) as year,
-    MONTH(bt.payment_date) as month,
-    MAX(DATE_FORMAT(bt.payment_date, '%M %Y')) as month_name,
-    COUNT(DISTINCT bt.transaction_id) as borrow_transactions,
-    SUM(bt.borrow_fee) as borrow_revenue,
-    (SELECT COALESCE(SUM(rr.fine_amount), 0)
-     FROM return_records rr
-     WHERE DATE_FORMAT(rr.return_date, '%Y-%m') = DATE_FORMAT(bt.payment_date, '%Y-%m')
-     AND rr.fine_paid = TRUE) as fine_revenue,
-    SUM(bt.borrow_fee) + (SELECT COALESCE(SUM(rr.fine_amount), 0)
-                           FROM return_records rr
-                           WHERE DATE_FORMAT(rr.return_date, '%Y-%m') = DATE_FORMAT(bt.payment_date, '%Y-%m')
-                           AND rr.fine_paid = TRUE) as total_revenue
-FROM borrow_transactions bt
-WHERE bt.payment_status = 'paid'
-GROUP BY DATE_FORMAT(bt.payment_date, '%Y-%m'), YEAR(bt.payment_date), MONTH(bt.payment_date)
-ORDER BY YEAR(bt.payment_date) DESC, MONTH(bt.payment_date) DESC;
+SELECT
+    bt.month_key,
+    bt.year,
+    bt.month,
+    bt.month_name,
+    bt.borrow_transactions,
+    bt.borrow_revenue,
+    COALESCE(fr.fine_revenue, 0) AS fine_revenue,
+    bt.borrow_revenue + COALESCE(fr.fine_revenue, 0) AS total_revenue
+FROM (
+    SELECT
+        DATE_FORMAT(payment_date, '%Y-%m') AS month_key,
+        YEAR(payment_date) AS year,
+        MONTH(payment_date) AS month,
+        MAX(DATE_FORMAT(payment_date, '%M %Y')) AS month_name,
+        COUNT(DISTINCT transaction_id) AS borrow_transactions,
+        SUM(borrow_fee) AS borrow_revenue
+    FROM borrow_transactions
+    WHERE payment_status = 'paid'
+    GROUP BY
+        DATE_FORMAT(payment_date, '%Y-%m'),
+        YEAR(payment_date),
+        MONTH(payment_date)
+) bt
+LEFT JOIN (
+    SELECT
+        DATE_FORMAT(return_date, '%Y-%m') AS month_key,
+        SUM(fine_amount) AS fine_revenue
+    FROM return_records
+    WHERE fine_paid = TRUE
+    GROUP BY DATE_FORMAT(return_date, '%Y-%m')
+) fr
+ON bt.month_key = fr.month_key
+ORDER BY bt.year DESC, bt.month DESC;
 
 -- View: Revenue summary by week (last 4 weeks)
 DROP VIEW IF EXISTS vw_revenue_weekly;
